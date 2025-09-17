@@ -37,7 +37,6 @@ def load_constants(aux_dataset_path: str, with_extra_train: bool = False) -> Con
     constants.rev_classes_mapping = pkl.load(open(os.path.join(aux_dataset_path, 'RNN_REV_CLASSES_MAPPING.pickle'), 'rb'))
     return constants
 
-
 def remove_diacritics(data_raw: str) -> str:
     """
     Remove diacritics from text.
