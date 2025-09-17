@@ -1,34 +1,42 @@
 import torch
 import pickle as pkl
 import os
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
+from dataclasses import dataclass
 
-# Global constants - loaded from pickle files
-CHARACTERS_MAPPING: Dict[str, int] = {}
-ARABIC_LETTERS_LIST: List[str] = []
-DIACRITICS_LIST: List[str] = []
-CLASSES_MAPPING: Dict[str, int] = {}
-REV_CLASSES_MAPPING: Dict[int, str] = {}
+@dataclass
+class Constants:
+    characters_mapping: Dict[str, int]
+    arabic_letters_list: List[str]
+    diacritics_list: List[str]
+    classes_mapping: Dict[str, int]
+    rev_classes_mapping: Dict[int, str]
 
-def load_constants(aux_dataset_path: str, with_extra_train: bool = False) -> None:
+# Global constants instance
+constants: Constants = Constants({}, [], [], {}, {})
+
+def load_constants(aux_dataset_path: str, with_extra_train: bool = False) -> Constants:
     """
-    Load constants from pickle files.
+    Load constants from pickle files and update the global constants instance.
 
     Inputs:
     - aux_dataset_path (str): Path to the directory containing pickle files
     - with_extra_train (bool): Whether to use extra training data mappings
 
-    Outputs: None (loads global variables)
+    Outputs:
+    - Constants: The updated constants object
     """
-    global CHARACTERS_MAPPING, ARABIC_LETTERS_LIST, DIACRITICS_LIST, CLASSES_MAPPING, REV_CLASSES_MAPPING
+    global constants
     if with_extra_train:
-        CHARACTERS_MAPPING = pkl.load(open(os.path.join(aux_dataset_path, 'RNN_BIG_CHARACTERS_MAPPING.pickle'), 'rb'))
+        constants.characters_mapping = pkl.load(open(os.path.join(aux_dataset_path, 'RNN_BIG_CHARACTERS_MAPPING.pickle'), 'rb'))
     else:
-        CHARACTERS_MAPPING = pkl.load(open(os.path.join(aux_dataset_path, 'RNN_SMALL_CHARACTERS_MAPPING.pickle'), 'rb'))
-    ARABIC_LETTERS_LIST = pkl.load(open(os.path.join(aux_dataset_path, 'ARABIC_LETTERS_LIST.pickle'), 'rb'))
-    DIACRITICS_LIST = pkl.load(open(os.path.join(aux_dataset_path, 'DIACRITICS_LIST.pickle'), 'rb'))
-    CLASSES_MAPPING = pkl.load(open(os.path.join(aux_dataset_path, 'RNN_CLASSES_MAPPING.pickle'), 'rb'))
-    REV_CLASSES_MAPPING = pkl.load(open(os.path.join(aux_dataset_path, 'RNN_REV_CLASSES_MAPPING.pickle'), 'rb'))
+        constants.characters_mapping = pkl.load(open(os.path.join(aux_dataset_path, 'RNN_SMALL_CHARACTERS_MAPPING.pickle'), 'rb'))
+    constants.arabic_letters_list = pkl.load(open(os.path.join(aux_dataset_path, 'ARABIC_LETTERS_LIST.pickle'), 'rb'))
+    constants.diacritics_list = pkl.load(open(os.path.join(aux_dataset_path, 'DIACRITICS_LIST.pickle'), 'rb'))
+    constants.classes_mapping = pkl.load(open(os.path.join(aux_dataset_path, 'RNN_CLASSES_MAPPING.pickle'), 'rb'))
+    constants.rev_classes_mapping = pkl.load(open(os.path.join(aux_dataset_path, 'RNN_REV_CLASSES_MAPPING.pickle'), 'rb'))
+    return constants
+
 
 def remove_diacritics(data_raw: str) -> str:
     """
@@ -40,9 +48,9 @@ def remove_diacritics(data_raw: str) -> str:
     Outputs:
     - str: Text without diacritics
     """
-    if not DIACRITICS_LIST:
-        raise ValueError("DIACRITICS_LIST not loaded. Call load_constants first.")
-    return data_raw.translate(str.maketrans('', '', ''.join(DIACRITICS_LIST)))
+    if not constants or not constants.diacritics_list:
+        raise ValueError("Constants not loaded. Call load_constants first.")
+    return data_raw.translate(str.maketrans('', '', ''.join(constants.diacritics_list)))
 
 def split_data_tashkeela(data_raw: List[str], max_length: int = 270) -> List[str]:
     """
@@ -89,32 +97,32 @@ def map_data(data_raw: List[str]) -> Tuple[List[List[int]], List[List[int]]]:
     Outputs:
     - Tuple[List[List[int]], List[List[int]]]: (X sequences, Y sequences)
     """
-    if not all([CHARACTERS_MAPPING, CLASSES_MAPPING, DIACRITICS_LIST, ARABIC_LETTERS_LIST]):
+    if not constants:
         raise ValueError("Constants not loaded. Call load_constants first.")
     
     X = []
     Y = []
     for line in data_raw:
-        x = [CHARACTERS_MAPPING['<SOS>']]
-        y = [CLASSES_MAPPING['<SOS>']]
+        x = [constants.characters_mapping['<SOS>']]
+        y = [constants.classes_mapping['<SOS>']]
         for idx, char in enumerate(line):
-            if char in DIACRITICS_LIST:
+            if char in constants.diacritics_list:
                 continue
-            x.append(CHARACTERS_MAPPING.get(char, CHARACTERS_MAPPING['<PAD>']))
-            if char not in ARABIC_LETTERS_LIST:
-                y.append(CLASSES_MAPPING[''])
+            x.append(constants.characters_mapping.get(char, constants.characters_mapping['<PAD>']))
+            if char not in constants.arabic_letters_list:
+                y.append(constants.classes_mapping[''])
             else:
                 char_diac = ''
-                if idx + 1 < len(line) and line[idx + 1] in DIACRITICS_LIST:
+                if idx + 1 < len(line) and line[idx + 1] in constants.diacritics_list:
                     char_diac = line[idx + 1]
-                    if idx + 2 < len(line) and line[idx + 2] in DIACRITICS_LIST:
-                        if char_diac + line[idx + 2] in CLASSES_MAPPING:
+                    if idx + 2 < len(line) and line[idx + 2] in constants.diacritics_list:
+                        if char_diac + line[idx + 2] in constants.classes_mapping:
                             char_diac += line[idx + 2]
-                        elif line[idx + 2] + char_diac in CLASSES_MAPPING:
+                        elif line[idx + 2] + char_diac in constants.classes_mapping:
                             char_diac = line[idx + 2] + char_diac
-                y.append(CLASSES_MAPPING.get(char_diac, CLASSES_MAPPING['']))
-        x.append(CHARACTERS_MAPPING['<EOS>'])
-        y.append(CLASSES_MAPPING['<EOS>'])
+                y.append(constants.classes_mapping.get(char_diac, constants.classes_mapping['']))
+        x.append(constants.characters_mapping['<EOS>'])
+        y.append(constants.classes_mapping['<EOS>'])
         X.append(x)
         Y.append(y)
     return X, Y
@@ -192,3 +200,5 @@ def split_into_training_validation(lines: List[str], split_index: int = 9000, va
     train_split_c = split_data(train_raw_c, split_index)
     val_split_c = split_data(val_raw_c, val_split_index)
     return train_split_c, val_split_c
+
+

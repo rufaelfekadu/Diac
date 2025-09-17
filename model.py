@@ -185,3 +185,25 @@ class ModifiedTransformerModel(nn.Module):
 
         outputs = self.final_dense(combined)
         return F.softmax(outputs, dim=-1)
+
+
+if __name__ == "__main__":
+
+    model = ModifiedTransformerModel(
+            maxlen=100, 
+            vocab_size=1000, 
+            asr_vocab_size=1200, 
+            d_model=128, 
+            num_heads=4, 
+            dff=512, 
+            num_blocks=2, 
+            output_size=15
+        )
+    input_text = torch.randint(0, 1000, (32, 80))  # Batch of 32 samples, each of length 100
+    input_asr = torch.randint(0, 1200, (32, 98))
+    output = model(input_text, input_asr, with_conn=False)
+    print(output.shape)  # Should be (32, 100, 15)
+
+    # visualize the cmputational graph
+    from torchviz import make_dot
+    make_dot(output, params=dict(model.named_parameters())).render("rnn_torchviz", format="png")

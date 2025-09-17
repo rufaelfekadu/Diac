@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
-from utils import map_data, map_asr_data, CHARACTERS_MAPPING, CLASSES_MAPPING
+from utils import *
 from typing import List, Tuple, Optional
 
 class TextDataset(Dataset):
@@ -51,16 +51,42 @@ def collate_fn(batch: List[Tuple]) -> Tuple[torch.Tensor, ...]:
     if len(batch[0]) == 2:  # Text-only
         X_batch = [torch.tensor(item[0], dtype=torch.long) for item in batch]
         Y_batch = [torch.tensor(item[1], dtype=torch.long) for item in batch]
-        X_batch = torch.nn.utils.rnn.pad_sequence(X_batch, batch_first=True, padding_value=CHARACTERS_MAPPING.get('<PAD>', 0))
-        Y_batch = torch.nn.utils.rnn.pad_sequence(Y_batch, batch_first=True, padding_value=CLASSES_MAPPING.get('<PAD>', 0))
+        X_batch = torch.nn.utils.rnn.pad_sequence(X_batch, batch_first=True, padding_value=constants.characters_mapping.get('<PAD>', 0))
+        Y_batch = torch.nn.utils.rnn.pad_sequence(Y_batch, batch_first=True, padding_value=constants.classes_mapping.get('<PAD>', 0))
         return X_batch, Y_batch
     elif len(batch[0]) == 3:  # Text + Audio
         X_batch = [torch.tensor(item[0], dtype=torch.long) for item in batch]
         X_asr_batch = [torch.tensor(item[1], dtype=torch.long) for item in batch]
         Y_batch = [torch.tensor(item[2], dtype=torch.long) for item in batch]
-        X_batch = torch.nn.utils.rnn.pad_sequence(X_batch, batch_first=True, padding_value=CHARACTERS_MAPPING.get('<PAD>', 0))
-        X_asr_batch = torch.nn.utils.rnn.pad_sequence(X_asr_batch, batch_first=True, padding_value=CHARACTERS_MAPPING.get('<PAD>', 0))
-        Y_batch = torch.nn.utils.rnn.pad_sequence(Y_batch, batch_first=True, padding_value=CLASSES_MAPPING.get('<PAD>', 0))
+        X_batch = torch.nn.utils.rnn.pad_sequence(X_batch, batch_first=True, padding_value=constants.characters_mapping.get('<PAD>', 0))
+        X_asr_batch = torch.nn.utils.rnn.pad_sequence(X_asr_batch, batch_first=True, padding_value=constants.characters_mapping.get('<PAD>', 0))
+        Y_batch = torch.nn.utils.rnn.pad_sequence(Y_batch, batch_first=True, padding_value=constants.classes_mapping.get('<PAD>', 0))
         return X_batch, X_asr_batch, Y_batch
     else:
         raise ValueError("Unexpected batch structure")
+
+
+if __name__ == "__main__":
+    # Example usage
+    load_constants('/home/rufael/Projects/forced_alignment/Diac/constants')
+    sample_lines = ["السلام عليكم", "مرحبا بكم"]
+    sample_asr_lines = ["السلام عليكم", "مرحبا بكم"]
+    
+    expanded_vocab = expand_vocabulary(constants.characters_mapping, constants.classes_mapping)
+
+    text_dataset = TextDataset(sample_lines)
+    text_audio_dataset = TextAudioDataset(sample_lines, sample_asr_lines, expanded_vocab)
+
+    text_loader = create_dataloader(text_dataset, batch_size=2)
+    text_audio_loader = create_dataloader(text_audio_dataset, batch_size=2)
+
+    for X, Y in text_loader:
+        print("Text-only batch:")
+        print("X:", X)
+        print("Y:", Y)
+
+    for X, X_asr, Y in text_audio_loader:
+        print("Text + Audio batch:")
+        print("X:", X)
+        print("X_asr:", X_asr)
+        print("Y:", Y)
