@@ -8,8 +8,8 @@ from dataclasses import dataclass
 class TrainConfig:
 
     # data related
-    data_path: str = 'data/train.txt'
-    asr_data_path: str = 'data/asr_train.txt'  # for text + audio model
+    train_path: str = 'data/clartts/clartts_asr_train.tsv'
+    test_path: str = 'data/clartts/clartts_asr_test.tsv'
 
     # training related
     device: str = 'cuda'  # or 'cpu'
@@ -27,18 +27,27 @@ class TrainConfig:
     # output related
     save_freq: int = 1
     eval_freq: int = 1
-    save_path: str = 'model_checkpoints/'
+    save_path: str = 'checkpoints/'
+
+    @classmethod
+    def from_yml(cls, yml_path: str):
+        import yaml
+        with open(yml_path, 'r') as f:
+            yml_config = yaml.safe_load(f)
+        for key, value in yml_config.items():
+            if hasattr(cls, key):
+                setattr(cls, key, value)
 
 
 def train_epoch(model, dataloader, criterion, optimizer, device):
     model.train()
     training_loss = 0.0
     for batch in dataloader:
-        inputs, targets = batch
-        inputs, targets = inputs.to(device), targets.to(device)
+        inputs, inputs_asr, targets = batch
+        inputs, inputs_asr, targets = inputs.to(device), inputs_asr.to(device), targets.to(device)
 
         optimizer.zero_grad()
-        outputs = model(inputs)
+        outputs = model(inputs, inputs_asr)
         loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()
@@ -78,7 +87,7 @@ def train(config, model, train_loader, val_loader, criterion, optimizer):
         if (epoch + 1) % config.save_freq == 0:
             torch.save(model.state_dict(), f"{config.save_path}/model_epoch_{epoch+1}.pth")
 
-    return (best_val_loss, model)
+    return best_val_loss, model
 
 def main():
 
@@ -87,25 +96,24 @@ def main():
     expanded_vocab = expand_vocabulary(constants.characters_mapping, constants.classes_mapping)
     configs = TrainConfig()
 
-    # setup dataset
-    # read the text files
-    with open(configs.data_path, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
-    lines = [line.strip() for line in lines if line.strip()]
+    os.makedirs(configs.save_path, exist_ok=True)
 
-    # read asr text files (for text + audio model)
-    with open(configs.asr_data_path, 'r', encoding='utf-8') as f:
-        asr_lines = f.readlines()
-    asr_lines = [line.strip() for line in asr_lines if line.strip()]
     
-    assert len(lines) == len(asr_lines), "Text and ASR data must have the same number of lines."
+    # prepare data
+    train_data = TextAudioDataset(configs.train_path, expanded_vocab)
+    test_data = TextAudioDataset(configs.test_path, expanded_vocab)
+    # split train dataset into training and validation sets
+    train_size = int(0.9 * len(train_data))
+    val_size = len(train_data) - train_size
+    train_data, val_data = torch.utils.data.random_split(train_data, [train_size, val_size])
 
-    train_lines, val_lines = split_into_training_validation(lines)
-    train_data = TextDataset(train_lines)
-    val_data = TextDataset(val_lines)
     train_loader = create_dataloader(train_data, configs.batch_size)
     val_loader = create_dataloader(val_data, configs.batch_size)
-
+    # test_loader = create_dataloader(test_data, configs.batch_size)
+    
+    print("Data loaders created.")
+    print(f"Training samples: {len(train_data)}, Validation samples: {len(val_data)}, Test samples: {len(test_data)}")
+    print("Setting up model...")
     # setup model
     if configs.model_type == 'Transformer':
         model = ModifiedTransformerModel(
@@ -116,7 +124,8 @@ def main():
             num_heads=configs.num_heads,
             dff=4 * configs.d_model,
             num_blocks=configs.num_blocks,
-            dropout_rate=configs.dropout_rate
+            dropout_rate=configs.dropout_rate,
+            output_size=len(constants.classes_mapping)
         )
     elif configs.model_type == 'LSTM':
         model = LSTMModel(
@@ -125,7 +134,8 @@ def main():
             embedding_dim=configs.d_model,
             hidden_dim=configs.d_model,
             num_layers=configs.num_blocks,
-            dropout_rate=configs.dropout_rate
+            dropout_rate=configs.dropout_rate,
+            output_size=len(constants.classes_mapping)
         )
     else:
         raise ValueError(f"Unknown model type: {configs.model_type}")
@@ -134,9 +144,11 @@ def main():
 
     criterion = nn.CrossEntropyLoss(ignore_index=constants.classes_mapping.get('<PAD>', 0))
     optimizer = torch.optim.Adam(model.parameters(), lr=configs.learning_rate)
-    os.makedirs(configs.save_path, exist_ok=True)
+
+    print("Starting training...")
     best_val_loss, trained_model = train(configs, model, train_loader, val_loader, criterion, optimizer)
     print(f"Training complete. Best Validation Loss: {best_val_loss:.4f}")
     torch.save(trained_model.state_dict(), f"{configs.save_path}/final_model.pth")
 
-    pass
+if __name__ == "__main__":
+    main()

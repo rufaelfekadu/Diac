@@ -152,7 +152,7 @@ class ModifiedTransformerModel(nn.Module):
         # ASR branch
         self.asr_embedding = TokenAndPositionEmbedding(maxlen, asr_vocab_size, d_model)
         self.asr_transformer_blocks = nn.ModuleList([
-            TransformerBlock(d_model, num_heads, dff, dropout_rate) for _ in range(2)
+            TransformerBlock(d_model, num_heads, dff, dropout_rate) for _ in range(num_blocks)
         ])
         self.asr_dense = nn.Linear(d_model, d_model)
 
@@ -204,6 +204,6 @@ if __name__ == "__main__":
     output = model(input_text, input_asr, with_conn=False)
     print(output.shape)  # Should be (32, 100, 15)
 
-    # visualize the cmputational graph
+    # visualize the computational graph
     from torchviz import make_dot
     make_dot(output, params=dict(model.named_parameters())).render("rnn_torchviz", format="png")
