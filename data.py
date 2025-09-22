@@ -70,8 +70,8 @@ def collate_fn(batch: List[Tuple]) -> Tuple[torch.Tensor, ...]:
     Custom collate function for variable length sequences.
     """
     if len(batch[0]) == 2:  # Text-only
-        X_batch = [torch.tensor(item[0], dtype=torch.long) for item in batch]
-        Y_batch = [torch.tensor(item[1], dtype=torch.long) for item in batch]
+        X_batch = [torch.tensor(item['text'], dtype=torch.long) for item in batch]
+        Y_batch = [torch.tensor(item['label'], dtype=torch.long) for item in batch]
         X_batch = torch.nn.utils.rnn.pad_sequence(X_batch, batch_first=True, padding_value=constants.characters_mapping.get('<PAD>', 0))
         Y_batch = torch.nn.utils.rnn.pad_sequence(Y_batch, batch_first=True, padding_value=constants.classes_mapping.get('<PAD>', 0))
         return X_batch, None, Y_batch
@@ -100,15 +100,15 @@ if __name__ == "__main__":
     text_loader = create_dataloader(text_dataset, batch_size=2)
     text_audio_loader = create_dataloader(text_audio_dataset, batch_size=2)
 
-    for X, Y in text_loader:
+    for X, _,  Y in text_loader:
         print("Text-only batch:")
-        print("X:", X)
-        print("Y:", Y)
+        print("X:", X.shape)
+        print("Y:", Y.shape)
         break
 
     for X, X_asr, Y in text_audio_loader:
         print("Text + Audio batch:")
-        print("X:", X)
-        print("X_asr:", X_asr)
-        print("Y:", Y)
+        print("X:", X.shape)
+        print("X_asr:", X_asr.shape)
+        print("Y:", Y.shape)
         break

@@ -135,12 +135,15 @@ class LSTMModel(nn.Module):
         return F.softmax(outputs, dim=-1)
 
 class ModifiedTransformerModel(nn.Module):
-    def __init__(self, maxlen, vocab_size, asr_vocab_size, d_model, num_heads, dff, num_blocks, output_size, dropout_rate=0.5):
+    def __init__(self, maxlen, vocab_size, asr_vocab_size, d_model, num_heads, dff, num_blocks, output_size, with_conn=False, dropout_rate=0.5):
         super(ModifiedTransformerModel, self).__init__()
         self.maxlen = maxlen
         self.vocab_size = vocab_size
         self.asr_vocab_size = asr_vocab_size
         self.output_size = output_size
+        self.with_conn = with_conn
+        self.d_model = d_model
+        self.num_heads = num_heads
 
         # Text branch
         self.text_embedding = TokenAndPositionEmbedding(maxlen, vocab_size, d_model)
@@ -158,9 +161,12 @@ class ModifiedTransformerModel(nn.Module):
 
         # Cross-attention
         self.cross_attention = nn.MultiheadAttention(d_model, num_heads, dropout=dropout_rate)
-        self.final_dense = nn.Linear(d_model, output_size)
+        if with_conn:
+            self.final_dense = nn.Linear(d_model * 2, output_size)
+        else:
+            self.final_dense = nn.Linear(d_model, output_size)
 
-    def forward(self, inputs, input_asr, with_conn=True):
+    def forward(self, inputs, input_asr):
         # Text branch
         x = self.text_embedding(inputs)
         for block in self.text_transformer_blocks:
@@ -178,7 +184,7 @@ class ModifiedTransformerModel(nn.Module):
         cross_out = cross_out.transpose(0, 1)
 
         # Combine
-        if with_conn:
+        if self.with_conn:
             combined = torch.cat([x, cross_out], dim=-1)
         else:
             combined = cross_out
@@ -205,5 +211,5 @@ if __name__ == "__main__":
     print(output.shape)  # Should be (32, 100, 15)
 
     # visualize the computational graph
-    from torchviz import make_dot
-    make_dot(output, params=dict(model.named_parameters())).render("rnn_torchviz", format="png")
+    # from torchviz import make_dot
+    # make_dot(output, params=dict(model.named_parameters())).render("rnn_torchviz", format="png")
