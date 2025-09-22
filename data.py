@@ -60,9 +60,6 @@ class TextAudioDataset(Dataset):
             }
 
 def create_dataloader(dataset: Dataset, batch_size: int, shuffle: bool = True) -> DataLoader:
-    """
-    Create DataLoader with custom collate function.
-    """
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn)
 
 def collate_fn(batch: List[Tuple]) -> Tuple[torch.Tensor, ...]:
@@ -88,7 +85,7 @@ def collate_fn(batch: List[Tuple]) -> Tuple[torch.Tensor, ...]:
 
 
 if __name__ == "__main__":
-    # Example usage
+
     load_constants('/home/rufael/Projects/forced_alignment/Diac/constants')
     data_path = "/home/rufael/Projects/forced_alignment/Diac/data/clartts/clartts_asr_test.tsv"
     

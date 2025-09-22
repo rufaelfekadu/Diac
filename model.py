@@ -135,6 +135,7 @@ class LSTMModel(nn.Module):
         return F.softmax(outputs, dim=-1)
 
 class ModifiedTransformerModel(nn.Module):
+    
     def __init__(self, maxlen, vocab_size, asr_vocab_size, d_model, num_heads, dff, num_blocks, output_size, with_conn=False, dropout_rate=0.5):
         super(ModifiedTransformerModel, self).__init__()
         self.maxlen = maxlen
@@ -192,6 +193,8 @@ class ModifiedTransformerModel(nn.Module):
         outputs = self.final_dense(combined)
         return F.softmax(outputs, dim=-1)
 
+    def load_pretrained(self, pretrained_model_path):
+        pass
 
 if __name__ == "__main__":
 

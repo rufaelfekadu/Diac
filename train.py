@@ -10,15 +10,18 @@ import wandb
 @dataclass
 class TrainConfig:
 
+    # config
+    constants_path: str = './constants'
+
     # data related
     train_path: str = 'data/clartts/clartts_asr_train.tsv'
     test_path: str = 'data/clartts/clartts_asr_test.tsv'
 
     # training related
-    device: str = 'cpu'  # or 'cpu'
+    device: str = 'cuda'  # or 'cpu'
     batch_size: int = 32
     num_epochs: int = 100
-    learning_rate: float = 0.001
+    learning_rate: float = 0.0001
 
     # model related
     maxlen: int = 1000
@@ -89,20 +92,24 @@ def train(config, model, train_loader, val_loader, criterion, optimizer):
             val_loss, val_accuracy = evaluate(model, val_loader, criterion, config.device)
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                torch.save(model.state_dict(), f"{config.save_path}/best_model.pth")
+                best_model_path = f"{config.save_path}/best_model.pth"
+                torch.save(model.state_dict(), best_model_path)
+                wandb.save(best_model_path)
             wandb.log({"val/loss": val_loss, "val/accuracy": val_accuracy, "epoch": epoch+1})
 
         if (epoch + 1) % config.save_freq == 0:
-            torch.save(model.state_dict(), f"{config.save_path}/model_epoch_{epoch+1}.pth")
+            checkpoint_path = f"{config.save_path}/model_epoch_{epoch+1}.pth"
+            torch.save(model.state_dict(), checkpoint_path)
+            wandb.save(checkpoint_path)
 
     return best_val_loss, model
 
 def main():
 
-    # load constants
-    load_constants('./Diac/constants')
-    expanded_vocab = expand_vocabulary(constants.characters_mapping, constants.classes_mapping)
+    # setup config
     configs = TrainConfig()
+    constants = load_constants(configs.constants_path)
+    expanded_vocab = expand_vocabulary(constants.characters_mapping, constants.classes_mapping)
 
     os.makedirs(configs.save_path, exist_ok=True)
 
@@ -161,7 +168,9 @@ def main():
     print("Starting training...")
     best_val_loss, trained_model = train(configs, model, train_loader, val_loader, criterion, optimizer)
     print(f"Training complete. Best Validation Loss: {best_val_loss:.4f}")
-    torch.save(trained_model.state_dict(), f"{configs.save_path}/final_model.pth")
+    final_model_path = f"{configs.save_path}/final_model.pth"
+    torch.save(trained_model.state_dict(), final_model_path)
+    wandb.save(final_model_path)
     wandb.finish()
 
 if __name__ == "__main__":
