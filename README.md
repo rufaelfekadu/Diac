@@ -2,9 +2,9 @@
 
 <div align="center">
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+<!-- [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE) -->
 [![Paper](https://img.shields.io/badge/Paper-PDF-blue)](https://aclanthology.org/2024.naacl-long.233.pdf)
-[![Project](https://img.shields.io/badge/Project-CASA-red)](https://github.com/SaraShatnawi/Diacritization)
+[![Project](https://img.shields.io/badge/Project-Diacritization-red)](https://github.com/SaraShatnawi/Diacritization)
 </div>
 
 

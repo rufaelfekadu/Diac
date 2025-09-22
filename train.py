@@ -11,8 +11,8 @@ import wandb
 class TrainConfig:
 
     # data related
-    train_path: str = 'Diac/data/clartts/clartts_asr_train.tsv'
-    test_path: str = 'Diac/data/clartts/clartts_asr_test.tsv'
+    train_path: str = 'data/clartts/clartts_asr_train.tsv'
+    test_path: str = 'data/clartts/clartts_asr_test.tsv'
 
     # training related
     device: str = 'cpu'  # or 'cpu'
@@ -31,7 +31,7 @@ class TrainConfig:
     # output related
     save_freq: int = 30
     eval_freq: int = 1
-    save_path: str = 'Diac/checkpoints/'
+    save_path: str = 'checkpoints/'
 
     @classmethod
     def from_yml(cls, yml_path: str):
@@ -107,12 +107,13 @@ def main():
     os.makedirs(configs.save_path, exist_ok=True)
 
     # Initialize wandb
-    wandb.init(project="diacritization", config=configs.__dict__)
+    wandb.init(project="diacritization", config=configs.__dict__, dir=configs.save_path)
     wandb.run.name = f"{configs.model_type}_bs{configs.batch_size}_lr{configs.learning_rate}"
     
     # prepare data
     train_data = TextAudioDataset(configs.train_path, expanded_vocab)
     test_data = TextAudioDataset(configs.test_path, expanded_vocab)
+
     # split train dataset into training and validation sets
     train_size = int(0.9 * len(train_data))
     val_size = len(train_data) - train_size
@@ -125,6 +126,7 @@ def main():
     print("Data loaders created.")
     print(f"Training samples: {len(train_data)}, Validation samples: {len(val_data)}, Test samples: {len(test_data)}")
     print("Setting up model...")
+
     # setup model
     if configs.model_type == 'Transformer':
         model = ModifiedTransformerModel(
@@ -152,8 +154,6 @@ def main():
         model.to(configs.device)
     else:
         raise ValueError(f"Unknown model type: {configs.model_type}")
-
-
 
     criterion = nn.CrossEntropyLoss(ignore_index=constants.classes_mapping.get('<PAD>', 0))
     optimizer = torch.optim.Adam(model.parameters(), lr=configs.learning_rate)
