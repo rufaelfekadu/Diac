@@ -84,7 +84,7 @@ class LSTMModel(nn.Module):
         self.text_dropout2 = nn.Dropout(dropout_rate)
         self.text_dense1 = nn.Linear(dff*2, dff)
         self.text_dense2 = nn.Linear(dff, dff)
-        self.text_output = nn.Linear(dff, output_size)
+        self.text_output = nn.Linear(dff, d_model)
 
         # ASR branch
         self.asr_embedding = nn.Embedding(asr_vocab_size, d_model)
@@ -94,7 +94,7 @@ class LSTMModel(nn.Module):
         self.asr_dropout2 = nn.Dropout(dropout_rate)
         self.asr_dense1 = nn.Linear(dff*2, dff)
         self.asr_dense2 = nn.Linear(dff, dff)
-        self.asr_output = nn.Linear(dff, output_size)
+        self.asr_output = nn.Linear(dff, d_model)
 
         # Cross-attention
         self.cross_attention = nn.MultiheadAttention(d_model, num_heads, dropout=dropout_rate)
@@ -121,6 +121,7 @@ class LSTMModel(nn.Module):
         asr_out = F.relu(self.asr_dense2(asr_out))
         asr_out = self.asr_output(asr_out)
 
+        breakpoint()
         # Cross-attention
         cross_out, _ = self.cross_attention(text_out.transpose(0, 1), asr_out.transpose(0, 1), asr_out.transpose(0, 1))
         cross_out = cross_out.transpose(0, 1)
@@ -198,15 +199,27 @@ class ModifiedTransformerModel(nn.Module):
 
 if __name__ == "__main__":
 
-    model = ModifiedTransformerModel(
+    # model = ModifiedTransformerModel(
+    #         maxlen=100, 
+    #         vocab_size=1000, 
+    #         asr_vocab_size=1200, 
+    #         d_model=128, 
+    #         num_heads=4, 
+    #         dff=512, 
+    #         num_blocks=2, 
+    #         output_size=15
+    #     )
+
+    model = LSTMModel(
             maxlen=100, 
             vocab_size=1000, 
             asr_vocab_size=1200, 
+            output_size=15,
             d_model=128, 
             num_heads=4, 
             dff=512, 
             num_blocks=2, 
-            output_size=15
+            dropout_rate=0.5
         )
     input_text = torch.randint(0, 1000, (32, 80))  # Batch of 32 samples, each of length 100
     input_asr = torch.randint(0, 1200, (32, 98))
