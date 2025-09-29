@@ -3,7 +3,7 @@
 
 data:
   train_path: data/clartts/clartts_asr_train.tsv
-  test_path: data/clartts/clartts_asr_test.tsv
+  test_path: data/clartts/clartts_train_text.txt
 
 model:
   type: Transformer

@@ -5,7 +5,8 @@ from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq
 from config import InferenceConfig
 from model import ModifiedTransformerModel
 import csv
-import pandas as pd
+from tqdm import tqdm
+import argparse
 
 class AsrModel:
     def __init__(self, model, processor, device='cpu', forced_ids=None):
@@ -128,7 +129,7 @@ class Diacritize:
             print("without ASR text...")
             with open(input_file, 'r', encoding='utf-8') as f_in, open(output_file, 'w', encoding='utf-8') as f_out:
                 reader = csv.reader(f_in, delimiter='\t')
-                for line in reader:
+                for line in tqdm(reader, desc="Processing lines"):
                     if not line:
                         continue
                     diacritized_line = self.predict(line[0])
@@ -137,8 +138,13 @@ class Diacritize:
 
 
 def main():
+
+    parser = argparse.ArgumentParser(description="Diacritization Inference")
+    parser.add_argument('-c', '--config', type=str, required=True, help="Path to the config YAML file")
+    args = parser.parse_args()
+
     # playground for testing diacritization
-    config = InferenceConfig.from_yml('configs/transformer.clartts.yml')
+    config = InferenceConfig.from_yml(args.config)
     constants = load_constants(config.constants_path)
 
     # setup ASR model if needed
@@ -155,7 +161,7 @@ def main():
                             asr_model=asr_model,
                             **config.__dict__)
     
-    diacritizer.predict_file(config.data.train_path, config.inference.output_path)
+    diacritizer.predict_file(config.data.test_path, config.inference.output_path)
 
 if __name__ == "__main__":
     main()

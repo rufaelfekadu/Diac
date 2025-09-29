@@ -40,7 +40,21 @@ The script generates a .tsv file for train and test splits of the dataset
 
 To train the models, use the following command. Choose the 
 ```bash
-python train.py -confg configs/transformer.clartts.yml # path to the configuration file
+python train.py --config configs/transformer.clartts.yml # path to the configuration file
+```
+
+To Run inference update the test_path and output_path in the configuration yaml file and run the following.
+test_path can be one of the following:
+- `data.tsv`: tsv file with format (audio_paths \t undiacritized_text) or (undiacritized_text \t ASR_output)
+- `data.txt`: lines of undiacritized text
+
+```bash
+python inference.py --config configs/transformer.clartts.yml
+```
+This will create a text file with the predicted values at output_path. To run the evaluation use
+
+```bash
+python eval.py -ofp /path/to/original-text -tfp /path/to/target-text
 ```
 
 ## ✏️ Citation
