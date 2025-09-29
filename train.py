@@ -1,52 +1,16 @@
 
-from model import *
-from data import TextDataset, TextAudioDataset, create_dataloader
-from utils import *
+
 import argparse
 from dataclasses import dataclass
 from tqdm import tqdm
 import wandb
 
-@dataclass
-class TrainConfig:
+from model import *
+from data import TextDataset, TextAudioDataset, create_dataloader
+from utils import *
+from config import TrainConfig
 
-    # config
-    constants_path: str = './constants'
-
-    # data related
-    train_path: str = 'data/clartts/clartts_asr_train.tsv'
-    test_path: str = 'data/clartts/clartts_asr_test.tsv'
-
-    # training related
-    device: str = 'cuda'  # or 'cpu'
-    batch_size: int = 32
-    num_epochs: int = 100
-    learning_rate: float = 0.0001
-
-    # model related
-    maxlen: int = 1000
-    d_model: int = 128
-    num_heads: int = 4
-    num_blocks: int = 2
-    dropout_rate: float = 0.2
-    model_type: str = 'Transformer'  # or  'LSTM' 'Transformer'
-
-    # output related
-    save_freq: int = 30
-    eval_freq: int = 1
-    save_path: str = 'checkpoints/'
-
-    @classmethod
-    def from_yml(cls, yml_path: str):
-        import yaml
-        with open(yml_path, 'r') as f:
-            yml_config = yaml.safe_load(f)
-        for key, value in yml_config.items():
-            if hasattr(cls, key):
-                setattr(cls, key, value)
-
-
-def train_epoch(epoch, model, dataloader, criterion, optimizer, device):
+def train_epoch(epoch, model, dataloader, criterion, optimizer, device, use_asr=True):
     model.train()
     training_loss = 0.0
     for batch in tqdm(dataloader, desc=f"Training : Epoch {epoch}", leave=False):
@@ -54,7 +18,9 @@ def train_epoch(epoch, model, dataloader, criterion, optimizer, device):
         inputs, inputs_asr, targets = inputs.to(device), inputs_asr.to(device), targets.to(device)
 
         optimizer.zero_grad()
-        outputs = model(inputs, inputs_asr)
+        if not use_asr:
+            inputs_asr = None
+        outputs = model(inputs, inputs_asr=inputs_asr)
         
         loss = criterion(outputs.permute(0,2,1), targets)
         loss.backward()
@@ -82,96 +48,101 @@ def evaluate(model, dataloader, criterion, device):
 
 def train(config, model, train_loader, val_loader, criterion, optimizer):
 
-    model.to(config.device)
+    model.to(config.train.device)
     best_val_loss = float('inf')
-    for epoch in range(config.num_epochs):
-        train_loss = train_epoch(epoch, model, train_loader, criterion, optimizer, config.device)
+    for epoch in range(config.train.num_epochs):
+        train_loss = train_epoch(epoch, model, train_loader, criterion, optimizer, config.train.device, use_asr=config.model.use_asr)
         wandb.log({"train/loss": train_loss, "epoch": epoch+1})
-
-        if (epoch + 1) % config.eval_freq == 0:
-            val_loss, val_accuracy = evaluate(model, val_loader, criterion, config.device)
+        
+        if (epoch + 1) % config.train.eval_freq == 0:
+            val_loss, val_accuracy = evaluate(model, val_loader, criterion, config.train.device)
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                best_model_path = f"{config.save_path}/best_model.pth"
+                best_model_path = f"{config.train.save_dir}/best_model.pth"
                 torch.save(model.state_dict(), best_model_path)
                 wandb.save(best_model_path)
             wandb.log({"val/loss": val_loss, "val/accuracy": val_accuracy, "epoch": epoch+1})
 
-        if (epoch + 1) % config.save_freq == 0:
-            checkpoint_path = f"{config.save_path}/model_epoch_{epoch+1}.pth"
+        if (epoch + 1) % config.train.save_freq == 0:
+            checkpoint_path = f"{config.train.save_dir}/model_epoch_{epoch+1}.pth"
             torch.save(model.state_dict(), checkpoint_path)
             wandb.save(checkpoint_path)
 
     return best_val_loss, model
 
-def main():
+def main(configs):
 
     # setup config
-    configs = TrainConfig()
     constants = load_constants(configs.constants_path)
     expanded_vocab = expand_vocabulary(constants.characters_mapping, constants.classes_mapping)
 
-    os.makedirs(configs.save_path, exist_ok=True)
+    configs.model.vocab_size = len(constants.characters_mapping)
+    configs.model.asr_vocab_size = len(expanded_vocab)
+    configs.model.output_size = len(constants.classes_mapping)
 
+    # save config to yml
+    with open(f"{configs.train.save_dir}/config.yml", 'w') as f:
+        import yaml
+        yaml.dump(configs.__dict__, f)
+    os.makedirs(configs.train.save_dir, exist_ok=True)
+    breakpoint()
     # Initialize wandb
-    wandb.init(project="diacritization", config=configs.__dict__, dir=configs.save_path)
-    wandb.run.name = f"{configs.model_type}_bs{configs.batch_size}_lr{configs.learning_rate}"
+    wandb.init(project="diacritization", config=configs.__dict__, dir=configs.train.save_dir)
+    wandb.run.name = f"{configs.model.type}_bs{configs.train.batch_size}_lr{configs.train.learning_rate}"
     
     # prepare data
-    train_data = TextAudioDataset(configs.train_path, expanded_vocab)
-    test_data = TextAudioDataset(configs.test_path, expanded_vocab)
+    train_data = TextAudioDataset(configs.data.train_path, expanded_vocab)
+    test_data = TextAudioDataset(configs.data.test_path, expanded_vocab)
 
     # split train dataset into training and validation sets
     train_size = int(0.9 * len(train_data))
     val_size = len(train_data) - train_size
     train_data, val_data = torch.utils.data.random_split(train_data, [train_size, val_size])
 
-    train_loader = create_dataloader(train_data, configs.batch_size)
-    val_loader = create_dataloader(val_data, configs.batch_size)
+    train_loader = create_dataloader(train_data, configs.train.batch_size)
+    val_loader = create_dataloader(val_data, configs.train.batch_size)
     # test_loader = create_dataloader(test_data, configs.batch_size)
     
     print("Data loaders created.")
     print(f"Training samples: {len(train_data)}, Validation samples: {len(val_data)}, Test samples: {len(test_data)}")
     print("Setting up model...")
 
-    # setup model
-    if configs.model_type == 'Transformer':
-        model = ModifiedTransformerModel(
-            maxlen=configs.maxlen,
-            vocab_size=len(constants.characters_mapping),
-            asr_vocab_size=len(expanded_vocab),
-            d_model=configs.d_model,
-            num_heads=configs.num_heads,
-            dff=4 * configs.d_model,
-            num_blocks=configs.num_blocks,
-            dropout_rate=configs.dropout_rate,
-            output_size=len(constants.classes_mapping)
-        )
-        model.to(configs.device)
-    elif configs.model_type == 'LSTM':
-        model = LSTMModel(
-            vocab_size=len(constants.characters_mapping),
-            asr_vocab_size=len(expanded_vocab),
-            embedding_dim=configs.d_model,
-            hidden_dim=configs.d_model,
-            num_layers=configs.num_blocks,
-            dropout_rate=configs.dropout_rate,
-            output_size=len(constants.classes_mapping)
-        )
-        model.to(configs.device)
-    else:
-        raise ValueError(f"Unknown model type: {configs.model_type}")
 
+    # setup model
+    if configs.model.type == 'Transformer':
+        model = ModifiedTransformerModel(
+            **configs.model.__dict__
+        )
+        if configs.model.pretrained_path:
+            model.load_pretrained(configs.model.pretrained_path)
+
+        model.to(configs.train.device)
+    elif configs.model.type == 'LSTM':
+        model = ModifiedLSTMModel(
+            **configs.model.__dict__
+        )
+        model.to(configs.train.device)
+    else:
+        raise ValueError(f"Unknown model type: {configs.model.type}")
+
+    # setup loss and optimizer
     criterion = nn.CrossEntropyLoss(ignore_index=constants.classes_mapping.get('<PAD>', 0))
-    optimizer = torch.optim.Adam(model.parameters(), lr=configs.learning_rate)
+    optimizer = torch.optim.Adam(model.parameters(), lr=configs.train.learning_rate)
+
+    # TODO: Add LR scheduler if needed
 
     print("Starting training...")
-    best_val_loss, trained_model = train(configs, model, train_loader, val_loader, criterion, optimizer)
+    best_val_loss, _ = train(configs, model, train_loader, val_loader, criterion, optimizer)
     print(f"Training complete. Best Validation Loss: {best_val_loss:.4f}")
-    final_model_path = f"{configs.save_path}/final_model.pth"
-    torch.save(trained_model.state_dict(), final_model_path)
-    wandb.save(final_model_path)
+
     wandb.finish()
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train Diacritization Model")
+    parser.add_argument('--config', type=str, default='configs/transformer.clartts.yml', help='Path to the YAML config file')
+    return parser.parse_args()
+
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    config = TrainConfig.from_yml(args.config)
+    main(config)

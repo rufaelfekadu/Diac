@@ -53,15 +53,15 @@ class TokenAndPositionEmbedding(nn.Module):
         return token_embeddings + position_embeddings
 
 class TransformerModel(nn.Module):
-    def __init__(self, maxlen, vocab_size, d_model, num_heads, dff, num_blocks, dropout_rate=0.5):
+    def __init__(self, maxlen, vocab_size, d_model, num_heads, dff, num_blocks, output_size, dropout_rate=0.5):
         super(TransformerModel, self).__init__()
         self.embedding_layer = TokenAndPositionEmbedding(maxlen, vocab_size, d_model)
         self.transformer_blocks = nn.ModuleList([
             TransformerBlock(d_model, num_heads, dff, dropout_rate) for _ in range(num_blocks)
         ])
-        self.output_layer = nn.Linear(d_model, vocab_size)
+        self.output_layer = nn.Linear(d_model, output_size)
 
-    def forward(self, inputs):
+    def forward(self, inputs, **kwargs):
         x = self.embedding_layer(inputs)
         for block in self.transformer_blocks:
             x = block(x)
@@ -69,12 +69,41 @@ class TransformerModel(nn.Module):
         return F.softmax(outputs, dim=-1)
 
 class LSTMModel(nn.Module):
-    def __init__(self, maxlen, vocab_size, asr_vocab_size, output_size, d_model, num_heads, dff, num_blocks, dropout_rate=0.5):
+    def __init__(self, maxlen, vocab_size, output_size, d_model, dff, num_blocks, dropout_rate=0.5):
         super(LSTMModel, self).__init__()
+        self.embedding = nn.Embedding(vocab_size, d_model)
+        self.lstm = nn.LSTM(
+            input_size=d_model,
+            hidden_size=dff,
+            num_layers=num_blocks,
+            batch_first=True,
+            dropout=dropout_rate if num_blocks > 1 else 0,
+            bidirectional=True
+        )
+        self.dropout = nn.Dropout(dropout_rate)
+        self.fc = nn.Linear(dff * 2, output_size)  # *2 for bidirectional
+
+    def forward(self, inputs, **kwargs):
+        # inputs shape: [batch_size, seq_length]
+        embedded = self.embedding(inputs)  # [batch_size, seq_length, d_model]
+        output, (hidden, cell) = self.lstm(embedded)
+        # output shape: [batch_size, seq_length, hidden_size*2]
+        
+        output = self.dropout(output)
+        output = self.fc(output)
+        # output shape: [batch_size, seq_length, output_size]
+        
+        return F.softmax(output, dim=-1)
+
+class ModifiedLSTMModel(nn.Module):
+    def __init__(self, maxlen, vocab_size, asr_vocab_size, output_size, d_model, num_heads, dff, num_blocks, dropout_rate=0.5, with_conn=False, **kwargs):
+        super(ModifiedLSTMModel, self).__init__()
         self.vocab_size = vocab_size
         self.asr_vocab_size = asr_vocab_size
         self.output_size = output_size
         self.d_model = d_model
+        self.num_heads = num_heads
+        self.with_conn = with_conn
 
         # Text branch
         self.text_embedding = nn.Embedding(vocab_size, d_model)
@@ -98,9 +127,11 @@ class LSTMModel(nn.Module):
 
         # Cross-attention
         self.cross_attention = nn.MultiheadAttention(d_model, num_heads, dropout=dropout_rate)
-        self.final_dense = nn.Linear(d_model, output_size)
+        combined_dim = d_model * 2 if with_conn else d_model
 
-    def forward(self, inputs, input_asr, with_conn=True):
+        self.final_dense = nn.Linear(combined_dim, output_size)
+
+    def forward(self, inputs, input_asr, **kwargs):
         # Text branch
         text_emb = self.text_embedding(inputs)
         text_out, _ = self.text_lstm1(text_emb)
@@ -121,13 +152,12 @@ class LSTMModel(nn.Module):
         asr_out = F.relu(self.asr_dense2(asr_out))
         asr_out = self.asr_output(asr_out)
 
-        breakpoint()
         # Cross-attention
         cross_out, _ = self.cross_attention(text_out.transpose(0, 1), asr_out.transpose(0, 1), asr_out.transpose(0, 1))
         cross_out = cross_out.transpose(0, 1)
 
         # Combine
-        if with_conn:
+        if self.with_conn:
             combined = torch.cat([text_out, cross_out], dim=-1)
         else:
             combined = cross_out
@@ -137,7 +167,7 @@ class LSTMModel(nn.Module):
 
 class ModifiedTransformerModel(nn.Module):
     
-    def __init__(self, maxlen, vocab_size, asr_vocab_size, d_model, num_heads, dff, num_blocks, output_size, with_conn=False, dropout_rate=0.5):
+    def __init__(self, maxlen, vocab_size, asr_vocab_size, d_model, num_heads, dff, num_blocks, output_size, with_conn=False, dropout_rate=0.5, use_asr=True, **kwargs):
         super(ModifiedTransformerModel, self).__init__()
         self.maxlen = maxlen
         self.vocab_size = vocab_size
@@ -146,6 +176,7 @@ class ModifiedTransformerModel(nn.Module):
         self.with_conn = with_conn
         self.d_model = d_model
         self.num_heads = num_heads
+        self.use_asr = use_asr
 
         # Text branch
         self.text_embedding = TokenAndPositionEmbedding(maxlen, vocab_size, d_model)
@@ -155,26 +186,34 @@ class ModifiedTransformerModel(nn.Module):
         self.text_dense = nn.Linear(d_model, d_model)
 
         # ASR branch
-        self.asr_embedding = TokenAndPositionEmbedding(maxlen, asr_vocab_size, d_model)
-        self.asr_transformer_blocks = nn.ModuleList([
-            TransformerBlock(d_model, num_heads, dff, dropout_rate) for _ in range(num_blocks)
-        ])
-        self.asr_dense = nn.Linear(d_model, d_model)
+        if use_asr:
+            self.asr_embedding = TokenAndPositionEmbedding(maxlen, asr_vocab_size, d_model)
+            self.asr_transformer_blocks = nn.ModuleList([
+                TransformerBlock(d_model, num_heads, dff, dropout_rate) for _ in range(num_blocks)
+            ])
+            self.asr_dense = nn.Linear(d_model, d_model)
 
-        # Cross-attention
-        self.cross_attention = nn.MultiheadAttention(d_model, num_heads, dropout=dropout_rate)
-        if with_conn:
-            self.final_dense = nn.Linear(d_model * 2, output_size)
+
+            # Cross-attention
+            self.cross_attention = nn.MultiheadAttention(d_model, num_heads, dropout=dropout_rate)
+            if with_conn:
+                self.final_dense = nn.Linear(d_model * 2, output_size)
+            else:
+                self.final_dense = nn.Linear(d_model, output_size)
         else:
             self.final_dense = nn.Linear(d_model, output_size)
 
-    def forward(self, inputs, input_asr):
+    def forward(self, inputs, input_asr=None, **kwargs):
         # Text branch
         x = self.text_embedding(inputs)
         for block in self.text_transformer_blocks:
             x = block(x)
         x = self.text_dense(x)
 
+        if not self.use_asr:
+            outputs = self.final_dense(x)
+            return F.softmax(outputs, dim=-1)
+        
         # ASR branch
         asr_emb = self.asr_embedding(input_asr)
         for block in self.asr_transformer_blocks:
@@ -196,36 +235,47 @@ class ModifiedTransformerModel(nn.Module):
 
     def load_pretrained(self, pretrained_model_path):
         pass
-
+    
+    def predict(self, inputs, input_asr=None):
+        self.eval()
+        with torch.no_grad():
+            outputs = self.forward(inputs, input_asr)
+            predictions = outputs.argmax(dim=-1)
+        return predictions
+    
 if __name__ == "__main__":
 
-    # model = ModifiedTransformerModel(
+
+    # model = ModifiedLSTMModel(
     #         maxlen=100, 
-    #         vocab_size=1000, 
-    #         asr_vocab_size=1200, 
-    #         d_model=128, 
-    #         num_heads=4, 
-    #         dff=512, 
-    #         num_blocks=2, 
-    #         output_size=15
+    #         vocab_size=1000,
+    #         asr_vocab_size=1200,
+    #         output_size=15,
+    #         d_model=128,
+    #         num_heads=4,
+    #         dff=512,
+    #         num_blocks=2,
+    #         dropout_rate=0.2,
+    #         with_conn=False
     #     )
 
-    model = LSTMModel(
+    model = ModifiedTransformerModel(
             maxlen=100, 
             vocab_size=1000, 
             asr_vocab_size=1200, 
-            output_size=15,
             d_model=128, 
             num_heads=4, 
             dff=512, 
             num_blocks=2, 
-            dropout_rate=0.5
+            output_size=15,
+            use_asr=True,
         )
+
     input_text = torch.randint(0, 1000, (32, 80))  # Batch of 32 samples, each of length 100
     input_asr = torch.randint(0, 1200, (32, 98))
-    output = model(input_text, input_asr, with_conn=False)
+    output = model(inputs=input_text, input_asr=input_asr)
     print(output.shape)  # Should be (32, 100, 15)
 
     # visualize the computational graph
     # from torchviz import make_dot
-    # make_dot(output, params=dict(model.named_parameters())).render("rnn_torchviz", format="png")
+    # make_dot(output, params=dict(model.named_parameters())).render("rnn_torchviz_asr", format="png")

@@ -3,6 +3,7 @@ import pickle as pkl
 import os
 from typing import List, Tuple, Dict, Optional
 from dataclasses import dataclass
+from model import *
 
 @dataclass
 class Constants:
@@ -182,6 +183,34 @@ def map_asr_data(data_raw: List[str], expanded_vocabulary: Dict[str, int]) -> Li
         X.append(x)
     return X
 
+def decode_predictions(predictions: List[int], text: str) -> str:
+    """
+    Decode sequence of predicted class indices to text with diacritics.
+
+    Inputs:
+    - predictions (List[int]): List of predicted class indices
+
+    Outputs:
+    - str: Decoded text with diacritics
+    """
+    if not constants or not constants.rev_classes_mapping:
+        raise ValueError("Constants not loaded. Call load_constants first.")
+    
+    decoded_text = ""
+    text = remove_diacritics(text)
+    for idx, char in zip(predictions, text):
+        decoded_text += char
+
+        if char not in constants.arabic_letters_list:
+            continue
+
+        if idx in [constants.classes_mapping.get('<SOS>'), constants.classes_mapping.get('<EOS>'), constants.classes_mapping.get('<PAD>')]:
+            continue
+        
+        decoded_text += constants.rev_classes_mapping.get(idx, '')
+
+    return decoded_text
+
 def split_into_training_validation(lines: List[str], split_index: int = 9000, val_split_index: int = 1000) -> Tuple[List[str], List[str]]:
     """
     Split data into training and validation sets.
@@ -199,5 +228,3 @@ def split_into_training_validation(lines: List[str], split_index: int = 9000, va
     train_split_c = split_data(train_raw_c, split_index)
     val_split_c = split_data(val_raw_c, val_split_index)
     return train_split_c, val_split_c
-
-

@@ -1,0 +1,33 @@
+# transformer.tashkeela.yml
+
+train:
+  device: cuda
+  batch_size: 32
+  num_epochs: 50
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  grad_clip: 1.0
+  optimizer: adam
+  scheduler: linear
+  warmup_steps: 4000
+  seed: 42
+  save_dir: checkpoints/
+  log_interval: 100
+  eval_interval: 1
+  
+
+model:
+  model_type: transformer
+  d_model: 256
+  nhead: 4
+  num_encoder_layers: 4
+  num_decoder_layers: 4
+  dim_feedforward: 1024
+  dropout: 0.1
+  activation: relu
+  max_seq_length: 512
+
+data:
+  train_path: data/tashkeela/train.txt
+  test_path: data/tashkeela/test.txt
+

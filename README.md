@@ -17,7 +17,7 @@ Automatic text-based diacritic restoration models generally have high diacritic 
 ## 📦 Installation
 
 ```bash
-git clone https://github.com/SaraShatnawi/Diacritization
+git clone https://github.com/rufaelfekadu/Diac
 cd Diacritization
 conda create -n diac python=3.12
 conda activate diac
@@ -31,16 +31,16 @@ pip install -r requirements.txt
 Run the following to download and prepare the CLArTTS data
 
 ```bash 
-python prep.py
+python prep_clartts.py
 ```
 
 The script generates a .tsv file for train and test splits of the dataset
 
 ## 🧠 Models
 
-To train the models, use the following command
+To train the models, use the following command. Choose the 
 ```bash
-python train.py 
+python train.py -confg configs/transformer.clartts.yml # path to the configuration file
 ```
 
 ## ✏️ Citation
