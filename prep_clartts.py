@@ -14,7 +14,7 @@ processor = AutoProcessor.from_pretrained("sashat/whisper-medium-ClassicalAr")
 model = AutoModelForSpeechSeq2Seq.from_pretrained("sashat/whisper-medium-ClassicalAr").to(device).eval()
 forced_ids = processor.get_decoder_prompt_ids(language="ar", task="transcribe")
 
-def transcribe_from_dataset(dataset, audio_column="audio", limit=None, batch_size=16):
+def transcribe_from_dataset(dataset, audio_column="audio", limit=None, batch_size=32):
     """
     Run batch transcription on audio files from a Huggingface dataset
     """
@@ -69,7 +69,7 @@ def transcribe_from_dataset(dataset, audio_column="audio", limit=None, batch_siz
 def main():
     splits = ['train','test']
     for split in splits:
-        dataset = load_dataset("AtharvA7k/ClArTTS", split=split)
+        dataset = load_dataset("AtharvA7k/ClArTTS", split=split, cache_dir=OUT_DIR)
         print(f"Processing split: {split} with {len(dataset)} samples")
         text_inputs, results = transcribe_from_dataset(dataset)
 

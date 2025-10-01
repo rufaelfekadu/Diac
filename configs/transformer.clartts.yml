@@ -1,43 +1,39 @@
 # transformer.clartts.yml
 
+DATA:
+  TRAIN_PATH: data/clartts/clartts_asr_train.tsv
+  TEST_PATH: data/clartts/clartts_test_text.txt
+  MAX_LENGTH: null
 
-data:
-  train_path: data/clartts/clartts_asr_train.tsv
-  test_path: data/clartts/clartts_train_text.txt
+MODEL:
+  TYPE: Transformer
+  MAXLEN: 186
+  VOCAB_SIZE: 77
+  ASR_VOCAB_SIZE: 91
+  D_MODEL: 128
+  NUM_HEADS: 4
+  DFF: 128
+  NUM_BLOCKS: 5
+  DROPOUT_RATE: 0.2
+  OUTPUT_SIZE: 19
+  USE_ASR: True
+  WITH_CONN: False # use concatenation to combine
+  PRETRAINED_PATH: null
+  LOAD_TEXT_BRANCH_ONLY: False
 
-model:
-  type: Transformer
-  maxlen: 186
-  vocab_size: 77
-  asr_vocab_size: 91
-  d_model: 128
-  num_heads: 4
-  dff: 512
-  num_blocks: 2
-  dropout_rate: 0.2
-  output_size: 19
-  use_asr: False
-  with_conn: False # use concatenation to combine
-
-train:
-  device: cuda
-  batch_size: 128
-  num_epochs: 10
-  learning_rate: 0.001
-  weight_decay: 0.0001
-  grad_clip: 1.0
-  optimizer: adam
-  scheduler: linear
-  warmup_steps: 4000
-  seed: 42
-  save_dir: checkpoints/transformer
-  save_freq: 30
-  eval_freq: 1
+TRAIN:
+  DEVICE: cuda
+  BATCH_SIZE: 128
+  NUM_EPOCHS: 20
+  LEARNING_RATE: 0.001
+  SAVE_DIR: checkpoints/transformer-clartts
+  SAVE_FREQ: 30
+  EVAL_FREQ: 1
   
-inference:
-  use_asr: False
-  device: cuda
-  batch_size: 16
-  model_path: checkpoints/transformer/best_model.pth
-  asr_model_name: "sashat/whisper-medium-ClassicalAr"
-  output_path: checkpoints/transformer/results/predictions_train.txt
+INFERENCE:
+  USE_ASR: False
+  DEVICE: cuda
+  BATCH_SIZE: 16
+  MODEL_PATH: checkpoints/transformer-clartts/best_model.pth
+  ASR_MODEL_NAME: "sashat/whisper-medium-ClassicalAr"
+  OUTPUT_PATH: checkpoints/transformer-clartts/results/predictions_test.txt

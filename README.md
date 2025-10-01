@@ -34,14 +34,22 @@ Run the following to download and prepare the CLArTTS data
 python prep_clartts.py
 ```
 
-The script generates a .tsv file for train and test splits of the dataset
+The script generates a .tsv file for train and test splits of the dataset in ./data/clartts dir
 
 ## 🧠 Models
 
-To train the models, use the following command. Choose the 
+### Training
+To train a text-only model on the tashkeela corpus run
 ```bash
-python train.py --config configs/transformer.clartts.yml # path to the configuration file
+python train.py --config configs/transformer.tashkeela.yml # path to the configuration file
 ```
+
+To train text+asr model on the clartts dataset initialised from the tashkeela text-model run,
+```bash
+python train.py --config configs/transformer.tashkeela+clartts.yml # path to the configuration file
+```
+
+### Inference
 
 To Run inference update the test_path and output_path in the configuration yaml file and run the following.
 test_path can be one of the following:
@@ -56,6 +64,15 @@ This will create a text file with the predicted values at output_path. To run th
 ```bash
 python eval.py -ofp /path/to/original-text -tfp /path/to/target-text
 ```
+
+## 👏 Acknowledgments
+
+This project builds upon or utilizes code and resources from:
+- [Evaluation helpers](https://github.com/AliOsm/arabic-text-diacritization) for evaluation
+- [CLArTTS Dataset](https://github.com/arabicsspeech/clarttscorpus)
+- [Tashkeela Corpus](https://github.com/AliOsm/arabic-text-diacritization)
+
+We thank all contributors to these resources for making their work available to the community.
 
 ## ✏️ Citation
 

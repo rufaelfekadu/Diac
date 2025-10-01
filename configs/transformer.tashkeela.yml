@@ -1,33 +1,40 @@
 # transformer.tashkeela.yml
 
-train:
-  device: cuda
-  batch_size: 32
-  num_epochs: 50
-  learning_rate: 0.001
-  weight_decay: 0.0001
-  grad_clip: 1.0
-  optimizer: adam
-  scheduler: linear
-  warmup_steps: 4000
-  seed: 42
-  save_dir: checkpoints/
-  log_interval: 100
-  eval_interval: 1
+DATA:
+  TRAIN_PATH: data/tashkeela/train.txt
+  VAL_PATH: data/tashkeela/val.txt
+  TEST_PATH: data/tashkeela/test.txt
+  MAX_LENGTH: 100
+
+MODEL:
+  TYPE: Transformer
+  MAXLEN: 102
+  VOCAB_SIZE: 77
+  ASR_VOCAB_SIZE: 91
+  D_MODEL: 128
+  NUM_HEADS: 4
+  DFF: 512
+  NUM_BLOCKS: 5
+  DROPOUT_RATE: 0.2
+  OUTPUT_SIZE: 19
+  USE_ASR: False
+  WITH_CONN: False # use concatenation to combine
+  PRETRAINED_PATH: null
+  LOAD_TEXT_BRANCH_ONLY: True
+
+TRAIN:
+  DEVICE: cuda
+  BATCH_SIZE: 128
+  NUM_EPOCHS: 10
+  LEARNING_RATE: 0.001
+  SAVE_DIR: checkpoints/transformer-tashkeela
+  SAVE_FREQ: 30
+  EVAL_FREQ: 1
   
-
-model:
-  model_type: transformer
-  d_model: 256
-  nhead: 4
-  num_encoder_layers: 4
-  num_decoder_layers: 4
-  dim_feedforward: 1024
-  dropout: 0.1
-  activation: relu
-  max_seq_length: 512
-
-data:
-  train_path: data/tashkeela/train.txt
-  test_path: data/tashkeela/test.txt
-
+INFERENCE:
+  USE_ASR: False
+  DEVICE: cuda
+  BATCH_SIZE: 16
+  MODEL_PATH: checkpoints/transformer-tashkeela/best_model.pth
+  ASR_MODEL_NAME: "sashat/whisper-medium-ClassicalAr"
+  OUTPUT_PATH: checkpoints/transformer-tashkeela/results/predictions_test.txt

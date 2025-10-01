@@ -1,9 +1,10 @@
-import torch
 import pickle as pkl
 import os
 from typing import List, Tuple, Dict, Optional
 from dataclasses import dataclass
 from model import *
+import re
+import argparse
 
 @dataclass
 class Constants:
@@ -52,40 +53,44 @@ def remove_diacritics(data_raw: str) -> str:
         raise ValueError("Constants not loaded. Call load_constants first.")
     return data_raw.translate(str.maketrans('', '', ''.join(constants.diacritics_list)))
 
-def split_data_tashkeela(data_raw: List[str], max_length: int = 270) -> List[str]:
-    """
-    Split data into lines shorter than max_length characters (without diacritics).
+def remove_special_chars(data_raw: str) -> str:
+    _punctuations = ".,!?;:"
+    return data_raw.translate(str.maketrans('', '', _punctuations))
 
-    Inputs:
-    - data_raw (List[str]): List of input lines
-    - max_length (int): Maximum length of undiacritized text
+# def split_data_tashkeela(data_raw: List[str], max_length: int = 270) -> List[str]:
+#     """
+#     Split data into lines shorter than max_length characters (without diacritics).
 
-    Outputs:
-    - List[str]: List of split lines
-    """
-    data_new = []
-    for line in data_raw:
-        for sub_line in line.split('\n'):
-            stripped = remove_diacritics(sub_line).strip()
-            if len(stripped) == 0:
-                continue
-            if len(stripped) <= max_length:
-                data_new.append(sub_line.strip())
-            else:
-                words = sub_line.split()
-                tmp_line = ''
-                for word in words:
-                    word_stripped = remove_diacritics(word).strip()
-                    tmp_stripped = remove_diacritics(tmp_line).strip()
-                    if len(tmp_stripped) + len(word_stripped) + 1 > max_length:
-                        if len(tmp_stripped) > 0:
-                            data_new.append(tmp_line.strip())
-                        tmp_line = word
-                    else:
-                        tmp_line = word if tmp_line == '' else tmp_line + ' ' + word
-                if len(remove_diacritics(tmp_line).strip()) > 0:
-                    data_new.append(tmp_line.strip())
-    return data_new
+#     Inputs:
+#     - data_raw (List[str]): List of input lines
+#     - max_length (int): Maximum length of undiacritized text
+
+#     Outputs:
+#     - List[str]: List of split lines
+#     """
+#     data_new = []
+#     for line in data_raw:
+#         for sub_line in line.split('\n'):
+#             stripped = remove_diacritics(sub_line).strip()
+#             if len(stripped) == 0:
+#                 continue
+#             if len(stripped) <= max_length:
+#                 data_new.append(sub_line.strip())
+#             else:
+#                 words = sub_line.split()
+#                 tmp_line = ''
+#                 for word in words:
+#                     word_stripped = remove_diacritics(word).strip()
+#                     tmp_stripped = remove_diacritics(tmp_line).strip()
+#                     if len(tmp_stripped) + len(word_stripped) + 1 > max_length:
+#                         if len(tmp_stripped) > 0:
+#                             data_new.append(tmp_line.strip())
+#                         tmp_line = word_stripped
+#                     else:
+#                         tmp_line = word_stripped if tmp_line == '' else tmp_line + ' ' + word_stripped
+#                 if len(remove_diacritics(tmp_line).strip()) > 0:
+#                     data_new.append(tmp_line.strip())
+#     return data_new
 
 def map_data(data_raw: List[str]) -> Tuple[List[List[int]], List[List[int]]]:
     """
@@ -183,6 +188,9 @@ def map_asr_data(data_raw: List[str], expanded_vocabulary: Dict[str, int]) -> Li
         X.append(x)
     return X
 
+def batch_decode_predictions(batch_predictions: List[List[int]], texts: List[str]) -> List[str]:
+    return [decode_predictions(pred, text) for pred, text in zip(batch_predictions, texts)]
+
 def decode_predictions(predictions: List[int], text: str) -> str:
     """
     Decode sequence of predicted class indices to text with diacritics.
@@ -211,20 +219,121 @@ def decode_predictions(predictions: List[int], text: str) -> str:
 
     return decoded_text
 
-def split_into_training_validation(lines: List[str], split_index: int = 9000, val_split_index: int = 1000) -> Tuple[List[str], List[str]]:
+def split_data_tashkeela(
+    data_raw: List[str],
+    max_length: int = 270,
+    return_undiacritized: bool = False,
+) -> List[str]:
     """
-    Split data into training and validation sets.
+    Split Arabic text into chunks whose *undiacritized* length is <= max_length.
 
-    Inputs:
-    - lines (List[str]): All data lines
-    - split_index (int): Index to split training data
-    - val_split_index (int): Number of validation samples
+    Args:
+        data_raw: List of input strings (can contain newlines).
+        max_length: Maximum length measured on text with diacritics removed.
+        return_undiacritized: If True, return chunks without diacritics.
+                              If False (default), return original text (with diacritics).
 
-    Outputs:
-    - Tuple[List[str], List[str]]: (training lines, validation lines)
+    Returns:
+        List[str]: Chunks of text whose undiacritized length <= max_length.
     """
-    train_raw_c = lines[:split_index]
-    val_raw_c = lines[split_index:]
-    train_split_c = split_data(train_raw_c, split_index)
-    val_split_c = split_data(val_raw_c, val_split_index)
-    return train_split_c, val_split_c
+
+    out: List[str] = []
+
+    # split on any whitespace blocks to "tokens" (words/punctuation)
+    def tokenize(s: str) -> List[str]:
+        return re.findall(r"\S+", s.strip())
+
+    # split a single long token by characters so that each chunk (undiacritized) <= max_length
+    def split_long_token(token: str) -> List[str]:
+        chunks = []
+        buf_chars = []
+        buf_len = 0
+        for ch in token:
+            ch_len = len(remove_diacritics(ch))
+            # if adding this char would exceed limit and we already have some chars, flush
+            if buf_chars and buf_len + ch_len > max_length:
+                chunks.append("".join(buf_chars))
+                buf_chars = [ch]
+                buf_len = ch_len
+            else:
+                buf_chars.append(ch)
+                buf_len += ch_len
+        if buf_chars:
+            chunks.append("".join(buf_chars))
+        return chunks
+
+    for line in data_raw:
+        for sub in line.split("\n"):
+            base = sub.strip()
+            if not base:
+                continue
+
+            # quick accept if whole line fits
+            if len(remove_diacritics(base)) <= max_length:
+                out.append(remove_diacritics(base) if return_undiacritized else base)
+                continue
+
+            # otherwise, word-wise packing
+            tokens = tokenize(base)
+            cur = []                 # list of original tokens
+            cur_len = 0              # undiacritized length of current line
+            for tok in tokens:
+                tok_len = len(remove_diacritics(tok))
+                sep = 1 if cur else 0  # space if we already have content
+
+                # fits as a whole token
+                if cur_len + sep + tok_len <= max_length:
+                    if sep:
+                        cur.append(" ")
+                        cur_len += 1
+                    cur.append(tok)
+                    cur_len += tok_len
+                    continue
+
+                # flush current line if it has content
+                if cur:
+                    joined = "".join(cur)
+                    out.append(remove_diacritics(joined) if return_undiacritized else joined)
+                    cur, cur_len = [], 0
+
+                # token itself is too long -> split by characters
+                if tok_len > max_length:
+                    pieces = split_long_token(tok)
+                    for i, piece in enumerate(pieces):
+                        piece_len = len(remove_diacritics(piece))
+                        # each piece is guaranteed <= max_length; flush immediately
+                        out.append(remove_diacritics(piece) if return_undiacritized else piece)
+                    # after splitting a long token, we start fresh
+                    cur, cur_len = [], 0
+                else:
+                    # start new line with this token
+                    cur = [tok]
+                    cur_len = tok_len
+
+            # flush remainder
+            if cur:
+                joined = "".join(cur)
+                out.append(remove_diacritics(joined) if return_undiacritized else joined)
+
+    return out
+
+
+def load_cfg():
+    from config import _C as cfg
+    parser = argparse.ArgumentParser(description="Train Diacritization Model")
+    parser.add_argument('--config', type=str, default='configs/transformer.tashkeela.yml', help='Path to the YAML config file')
+    parser.add_argument("--opts", default=[], nargs=argparse.REMAINDER,
+                        help="Override config: KEY VALUE pairs")
+    args = parser.parse_args()
+    if args.config:
+        cfg.merge_from_file(args.config)
+    if args.opts:
+        cfg.merge_from_list(args.opts)
+    cfg.freeze()
+    return cfg
+
+def dump_cfg(config, path):
+    import yaml 
+    from config import _to_dict
+    with open(path, 'w') as f:
+        yaml.dump(_to_dict(config), f)

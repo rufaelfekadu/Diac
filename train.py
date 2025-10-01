@@ -1,31 +1,39 @@
 
 
 import argparse
-from dataclasses import dataclass
 from tqdm import tqdm
-import wandb
+from torch.utils.tensorboard import SummaryWriter
+import logging
+import os
+import torch
+import torch.nn as nn
+import yaml
 
 from model import *
-from data import TextDataset, TextAudioDataset, create_dataloader
-from utils import *
-from config import TrainConfig
+from data import TextAudioDataset, create_dataloader
+from utils import load_cfg, dump_cfg, load_constants, expand_vocabulary
+
 
 def train_epoch(epoch, model, dataloader, criterion, optimizer, device, use_asr=True):
     model.train()
     training_loss = 0.0
-    for batch in tqdm(dataloader, desc=f"Training : Epoch {epoch}", leave=False):
+    data_iter = tqdm(dataloader, desc=f"Training : Epoch {epoch}", leave=False)
+    for batch in data_iter:
         inputs, inputs_asr, targets = batch
-        inputs, inputs_asr, targets = inputs.to(device), inputs_asr.to(device), targets.to(device)
-
+        inputs, targets = inputs.to(device), targets.to(device)
+        if use_asr and inputs_asr is not None:
+            inputs_asr = inputs_asr.to(device)
+    
         optimizer.zero_grad()
-        if not use_asr:
-            inputs_asr = None
+
         outputs = model(inputs, inputs_asr=inputs_asr)
-        
+
         loss = criterion(outputs.permute(0,2,1), targets)
         loss.backward()
         optimizer.step()
         training_loss += loss.item()
+
+        data_iter.set_postfix(loss=training_loss / len(inputs))
 
     return training_loss / len(dataloader)
 
@@ -33,116 +41,140 @@ def evaluate(model, dataloader, criterion, device):
     model.eval()
     validation_loss = 0.0
     total_correct = 0
+    total_tokens = 0
+    data_iter = tqdm(dataloader, desc="Evaluating", leave=False)
     with torch.no_grad():
-        for batch in tqdm(dataloader):
+        for batch in data_iter:
             inputs, input_asr, targets = batch
-            inputs, input_asr, targets = inputs.to(device), input_asr.to(device), targets.to(device)
+            inputs, targets = inputs.to(device), targets.to(device)
+            if input_asr is not None:
+                input_asr = input_asr.to(device)
 
             outputs = model(inputs, input_asr)
             pred = outputs.argmax(dim=-1)
+
             total_correct += (pred == targets).sum().item()
-            loss = criterion(outputs.permute(0, 2, 1), targets)
+            total_tokens += targets.numel()
+
+            loss = criterion(outputs.permute(0,2,1), targets)
             validation_loss += loss.item()
+        # update progress bar with accuracy and loss
+        data_iter.set_postfix(accuracy=100.0 * total_correct / total_tokens, loss=validation_loss / len(dataloader))
+    return validation_loss / len(dataloader), total_correct / total_tokens
 
-    return validation_loss / len(dataloader), total_correct / (len(dataloader.dataset) * targets.size(1))
+def train(config, model, train_loader, val_loader, criterion, optimizer, writer):
 
-def train(config, model, train_loader, val_loader, criterion, optimizer):
-
-    model.to(config.train.device)
+    model.to(config.TRAIN.DEVICE)
     best_val_loss = float('inf')
-    for epoch in range(config.train.num_epochs):
-        train_loss = train_epoch(epoch, model, train_loader, criterion, optimizer, config.train.device, use_asr=config.model.use_asr)
-        wandb.log({"train/loss": train_loss, "epoch": epoch+1})
+    for epoch in range(config.TRAIN.NUM_EPOCHS):
+        train_loss = train_epoch(epoch, model, train_loader, criterion, optimizer, config.TRAIN.DEVICE, use_asr=config.MODEL.USE_ASR)
+        writer.add_scalar('train/loss', train_loss, epoch+1)
         
-        if (epoch + 1) % config.train.eval_freq == 0:
-            val_loss, val_accuracy = evaluate(model, val_loader, criterion, config.train.device)
+        if (epoch + 1) % config.TRAIN.EVAL_FREQ == 0:
+            val_loss, val_accuracy = evaluate(model, val_loader, criterion, config.TRAIN.DEVICE)
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                best_model_path = f"{config.train.save_dir}/best_model.pth"
+                best_model_path = f"{config.TRAIN.SAVE_DIR}/best_model.pth"
                 torch.save(model.state_dict(), best_model_path)
-                wandb.save(best_model_path)
-            wandb.log({"val/loss": val_loss, "val/accuracy": val_accuracy, "epoch": epoch+1})
+            writer.add_scalar('val/loss', val_loss, epoch+1)
+            writer.add_scalar('val/accuracy', val_accuracy, epoch+1)
 
-        if (epoch + 1) % config.train.save_freq == 0:
-            checkpoint_path = f"{config.train.save_dir}/model_epoch_{epoch+1}.pth"
+        if (epoch + 1) % config.TRAIN.SAVE_FREQ == 0:
+            checkpoint_path = f"{config.TRAIN.SAVE_DIR}/model_epoch_{epoch+1}.pth"
             torch.save(model.state_dict(), checkpoint_path)
-            wandb.save(checkpoint_path)
 
     return best_val_loss, model
 
 def main(configs):
 
+    # setup logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(f"{configs.TRAIN.SAVE_DIR}/training.log"),
+            logging.StreamHandler()
+        ]
+    )
+    logger = logging.getLogger(__name__)
+
     # setup config
-    constants = load_constants(configs.constants_path)
+    constants = load_constants(configs.CONSTANTS_PATH)
     expanded_vocab = expand_vocabulary(constants.characters_mapping, constants.classes_mapping)
 
-    configs.model.vocab_size = len(constants.characters_mapping)
-    configs.model.asr_vocab_size = len(expanded_vocab)
-    configs.model.output_size = len(constants.classes_mapping)
+    assert configs.MODEL.VOCAB_SIZE == len(constants.characters_mapping), f"model vocab size {configs.MODEL.VOCAB_SIZE} does not match characters mapping size {len(constants.characters_mapping)}" 
+    assert configs.MODEL.ASR_VOCAB_SIZE == len(expanded_vocab), f"model asr vocab size {configs.MODEL.ASR_VOCAB_SIZE} does not match expanded vocab size {len(expanded_vocab)}"
+    assert configs.MODEL.OUTPUT_SIZE == len(constants.classes_mapping), f"model output size {configs.MODEL.OUTPUT_SIZE} does not match classes mapping size {len(constants.classes_mapping)}"
+
+    os.makedirs(configs.TRAIN.SAVE_DIR, exist_ok=True)
 
     # save config to yml
-    with open(f"{configs.train.save_dir}/config.yml", 'w') as f:
-        import yaml
-        yaml.dump(configs.__dict__, f)
-    os.makedirs(configs.train.save_dir, exist_ok=True)
-    breakpoint()
-    # Initialize wandb
-    wandb.init(project="diacritization", config=configs.__dict__, dir=configs.train.save_dir)
-    wandb.run.name = f"{configs.model.type}_bs{configs.train.batch_size}_lr{configs.train.learning_rate}"
+    dump_cfg(configs, os.path.join(configs.TRAIN.SAVE_DIR, 'config.yml'))
+    
+
+    # Initialize tensorboard
+    tensorboard_dir = f"{configs.TRAIN.SAVE_DIR}/tensorboard"
+    os.makedirs(tensorboard_dir, exist_ok=True)
+    writer = SummaryWriter(log_dir=tensorboard_dir)
     
     # prepare data
-    train_data = TextAudioDataset(configs.data.train_path, expanded_vocab)
-    test_data = TextAudioDataset(configs.data.test_path, expanded_vocab)
+    train_data = TextAudioDataset(configs.DATA.TRAIN_PATH, expanded_vocab, max_length=configs.DATA.MAX_LENGTH)
+    test_data = TextAudioDataset(configs.DATA.TEST_PATH, expanded_vocab, max_length=configs.DATA.MAX_LENGTH)
 
-    # split train dataset into training and validation sets
-    train_size = int(0.9 * len(train_data))
-    val_size = len(train_data) - train_size
-    train_data, val_data = torch.utils.data.random_split(train_data, [train_size, val_size])
+    # # split train dataset into training and validation sets
+    if not configs.DATA.VAL_PATH:
+        val_size = int(0.1 * len(train_data))
+        train_size = len(train_data) - val_size
+        train_data, val_data = torch.utils.data.random_split(train_data, [train_size, val_size])
+    else:
+        val_data = TextAudioDataset(configs.DATA.VAL_PATH, expanded_vocab, max_length=configs.DATA.MAX_LENGTH)
 
-    train_loader = create_dataloader(train_data, configs.train.batch_size)
-    val_loader = create_dataloader(val_data, configs.train.batch_size)
-    # test_loader = create_dataloader(test_data, configs.batch_size)
+    train_loader = create_dataloader(train_data, configs.TRAIN.BATCH_SIZE)
+    val_loader = create_dataloader(val_data, configs.TRAIN.BATCH_SIZE)
     
-    print("Data loaders created.")
-    print(f"Training samples: {len(train_data)}, Validation samples: {len(val_data)}, Test samples: {len(test_data)}")
-    print("Setting up model...")
-
+    logger.info("Data loaders created.")
+    logger.info(f"Training samples: {len(train_data)}, Validation samples: {len(val_data)}, Test samples: {len(test_data)}")
+    logger.info("Setting up model...")
 
     # setup model
-    if configs.model.type == 'Transformer':
-        model = ModifiedTransformerModel(
-            **configs.model.__dict__
-        )
-        if configs.model.pretrained_path:
-            model.load_pretrained(configs.model.pretrained_path)
+    if configs.MODEL.TYPE == 'Transformer':
+        model_params = dict(configs.MODEL)
+        model_kwargs = {k.lower(): v for k, v in model_params.items()}
+        model = ModifiedTransformerModel(**model_kwargs)
+        
+        if configs.MODEL.PRETRAINED_PATH:
+            model.load_pretrained(configs.MODEL.PRETRAINED_PATH, text_branch_only=configs.MODEL.LOAD_TEXT_BRANCH_ONLY)
 
-        model.to(configs.train.device)
-    elif configs.model.type == 'LSTM':
-        model = ModifiedLSTMModel(
-            **configs.model.__dict__
-        )
-        model.to(configs.train.device)
+        model.to(configs.TRAIN.DEVICE)
+    elif configs.MODEL.TYPE == 'LSTM':
+        model_params = dict(configs.MODEL)
+        model_kwargs = {k.lower(): v for k, v in model_params.items()}
+        model = ModifiedLSTMModel(**model_kwargs)
+        
+        if configs.MODEL.PRETRAINED_PATH:
+            model.load_pretrained(configs.MODEL.PRETRAINED_PATH, text_branch_only=configs.MODEL.LOAD_TEXT_BRANCH_ONLY)
+        model.to(configs.TRAIN.DEVICE)
     else:
-        raise ValueError(f"Unknown model type: {configs.model.type}")
+        raise ValueError(f"Unknown model type: {configs.MODEL.TYPE}")
+
+    logger.info(f"Model architecture:\n{model}")
+    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logger.info(f"Total trainable parameters: {total_params:,}")
 
     # setup loss and optimizer
-    criterion = nn.CrossEntropyLoss(ignore_index=constants.classes_mapping.get('<PAD>', 0))
-    optimizer = torch.optim.Adam(model.parameters(), lr=configs.train.learning_rate)
+    criterion = nn.CrossEntropyLoss(reduction='mean', 
+                                    # ignore_index=constants.classes_mapping.get('<PAD>')
+                                    )
+    optimizer = torch.optim.Adam(model.parameters(), lr=configs.TRAIN.LEARNING_RATE)
 
-    # TODO: Add LR scheduler if needed
+    logger.info("Starting training...")
+    best_val_loss, _ = train(configs, model, train_loader, val_loader, criterion, optimizer, writer)
+    logger.info(f"Training complete. Best Validation Loss: {best_val_loss:.4f}")
 
-    print("Starting training...")
-    best_val_loss, _ = train(configs, model, train_loader, val_loader, criterion, optimizer)
-    print(f"Training complete. Best Validation Loss: {best_val_loss:.4f}")
+    writer.close()
 
-    wandb.finish()
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Train Diacritization Model")
-    parser.add_argument('--config', type=str, default='configs/transformer.clartts.yml', help='Path to the YAML config file')
-    return parser.parse_args()
 
 if __name__ == "__main__":
-    args = parse_args()
-    config = TrainConfig.from_yml(args.config)
+
+    config = load_cfg()
     main(config)

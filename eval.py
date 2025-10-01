@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 
+# This file is taken from https://github.com/AliOsm/arabic-text-diacritization
+# It provides evaluation functions for Arabic text diacritization (DER, WER, SER).
+
+
 import sys
 import argparse
 import pickle as pkl

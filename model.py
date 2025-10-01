@@ -11,7 +11,7 @@ class TransformerBlock(nn.Module):
         self.dff = dff
         self.rate = rate
 
-        self.multi_head_attention = nn.MultiheadAttention(d_model, num_heads, dropout=rate)
+        self.multi_head_attention = nn.MultiheadAttention(d_model, num_heads, dropout=rate, batch_first=True)
         self.dropout1 = nn.Dropout(rate)
         self.layer_norm1 = nn.LayerNorm(d_model, eps=1e-6)
         
@@ -36,6 +36,29 @@ class TransformerBlock(nn.Module):
 
         return block_output
 
+class SinePositionEncoding(nn.Module):
+    def __init__(self, embed_dim, max_len=5000):
+        super().__init__()
+        
+        # Create the sinusoidal positional encodings once in log space
+        position = torch.arange(max_len).unsqueeze(1)          # (max_len, 1)
+        div_term = torch.exp(torch.arange(0, embed_dim, 2) * 
+                             -(math.log(10000.0) / embed_dim)) # (embed_dim/2,)
+
+        pe = torch.zeros(max_len, embed_dim)                   # (max_len, embed_dim)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        
+        pe = pe.unsqueeze(0)  # (1, max_len, embed_dim) for broadcasting
+        self.register_buffer("pe", pe)  # not a parameter, but moves with .to(device)
+
+    def forward(self, x):
+        """
+        x: (batch_size, seq_len, embed_dim)
+        """
+        seq_len = x.size(1)
+        return x + self.pe[:, :seq_len, :]
+    
 class TokenAndPositionEmbedding(nn.Module):
     def __init__(self, maxlen, vocab_size, embed_dim):
         super(TokenAndPositionEmbedding, self).__init__()
@@ -43,14 +66,14 @@ class TokenAndPositionEmbedding(nn.Module):
         self.vocab_size = vocab_size
         self.embed_dim = embed_dim
         self.token_emb = nn.Embedding(vocab_size, embed_dim)
-        self.pos_emb = nn.Embedding(maxlen, embed_dim)
+        self.pos_emb = SinePositionEncoding(embed_dim, maxlen)
+        # self.pos_emb = nn.Embedding(maxlen, embed_dim)
 
     def forward(self, inputs):
-        seq_len = inputs.size(1)
-        positions = torch.arange(0, seq_len, device=inputs.device).unsqueeze(0)
-        position_embeddings = self.pos_emb(positions)
-        token_embeddings = self.token_emb(inputs)
-        return token_embeddings + position_embeddings
+        batch_size, seq_len = inputs.size()
+        x = self.token_emb(inputs)
+        x = self.pos_emb(x)
+        return x
 
 class TransformerModel(nn.Module):
     def __init__(self, maxlen, vocab_size, d_model, num_heads, dff, num_blocks, output_size, dropout_rate=0.5):
@@ -96,7 +119,7 @@ class LSTMModel(nn.Module):
         return F.softmax(output, dim=-1)
 
 class ModifiedLSTMModel(nn.Module):
-    def __init__(self, maxlen, vocab_size, asr_vocab_size, output_size, d_model, num_heads, dff, num_blocks, dropout_rate=0.5, with_conn=False, **kwargs):
+    def __init__(self, maxlen, vocab_size, asr_vocab_size, output_size, d_model, num_heads, dff, num_blocks, dropout_rate=0.5, with_conn=False, use_asr=True, **kwargs):
         super(ModifiedLSTMModel, self).__init__()
         self.vocab_size = vocab_size
         self.asr_vocab_size = asr_vocab_size
@@ -104,6 +127,7 @@ class ModifiedLSTMModel(nn.Module):
         self.d_model = d_model
         self.num_heads = num_heads
         self.with_conn = with_conn
+        self.use_asr = use_asr
 
         # Text branch
         self.text_embedding = nn.Embedding(vocab_size, d_model)
@@ -116,20 +140,23 @@ class ModifiedLSTMModel(nn.Module):
         self.text_output = nn.Linear(dff, d_model)
 
         # ASR branch
-        self.asr_embedding = nn.Embedding(asr_vocab_size, d_model)
-        self.asr_lstm1 = nn.LSTM(d_model, dff, bidirectional=True, batch_first=True)
-        self.asr_dropout1 = nn.Dropout(dropout_rate)
-        self.asr_lstm2 = nn.LSTM(dff*2, dff, bidirectional=True, batch_first=True)
-        self.asr_dropout2 = nn.Dropout(dropout_rate)
-        self.asr_dense1 = nn.Linear(dff*2, dff)
-        self.asr_dense2 = nn.Linear(dff, dff)
-        self.asr_output = nn.Linear(dff, d_model)
+        if use_asr:
+            self.asr_embedding = nn.Embedding(asr_vocab_size, d_model)
+            self.asr_lstm1 = nn.LSTM(d_model, dff, bidirectional=True, batch_first=True)
+            self.asr_dropout1 = nn.Dropout(dropout_rate)
+            self.asr_lstm2 = nn.LSTM(dff*2, dff, bidirectional=True, batch_first=True)
+            self.asr_dropout2 = nn.Dropout(dropout_rate)
+            self.asr_dense1 = nn.Linear(dff*2, dff)
+            self.asr_dense2 = nn.Linear(dff, dff)
+            self.asr_output = nn.Linear(dff, d_model)
 
-        # Cross-attention
-        self.cross_attention = nn.MultiheadAttention(d_model, num_heads, dropout=dropout_rate)
-        combined_dim = d_model * 2 if with_conn else d_model
+            # Cross-attention
+            self.cross_attention = nn.MultiheadAttention(d_model, num_heads, dropout=dropout_rate)
+            combined_dim = d_model * 2 if with_conn else d_model
 
-        self.final_dense = nn.Linear(combined_dim, output_size)
+            self.final_dense = nn.Linear(combined_dim, output_size)
+        else:
+            self.final_dense = nn.Linear(d_model, output_size)
 
     def forward(self, inputs, input_asr, **kwargs):
         # Text branch
@@ -142,6 +169,10 @@ class ModifiedLSTMModel(nn.Module):
         text_out = F.relu(self.text_dense2(text_out))
         text_out = self.text_output(text_out)
 
+        if not self.use_asr:
+            outputs = self.final_dense(text_out)
+            return outputs
+        
         # ASR branch
         asr_emb = self.asr_embedding(input_asr)
         asr_out, _ = self.asr_lstm1(asr_emb)
@@ -163,7 +194,21 @@ class ModifiedLSTMModel(nn.Module):
             combined = cross_out
 
         outputs = self.final_dense(combined)
-        return F.softmax(outputs, dim=-1)
+
+        return outputs
+
+    def load_pretrained(self, pretrained_model_path, text_branch_only=False):
+
+        pretrained_dict = torch.load(pretrained_model_path, map_location='cpu')
+        model_dict = self.state_dict()
+
+        if text_branch_only:
+            pretrained_dict = {k: v for k, v in pretrained_dict.items() if k.startswith('text_') or k.startswith('final_dense')}
+        
+        # Update the current model's state dict
+        model_dict.update(pretrained_dict)
+        self.load_state_dict(model_dict)
+        print(f"Loaded pretrained weights from {pretrained_model_path}")
 
 class ModifiedTransformerModel(nn.Module):
     
@@ -181,9 +226,9 @@ class ModifiedTransformerModel(nn.Module):
         # Text branch
         self.text_embedding = TokenAndPositionEmbedding(maxlen, vocab_size, d_model)
         self.text_transformer_blocks = nn.ModuleList([
-            TransformerBlock(d_model, num_heads, dff, dropout_rate) for _ in range(2)
+            TransformerBlock(d_model, num_heads, dff, dropout_rate) for _ in range(num_blocks)
         ])
-        self.text_dense = nn.Linear(d_model, d_model)
+        # self.text_dense = nn.Linear(d_model, d_model)
 
         # ASR branch
         if use_asr:
@@ -191,7 +236,7 @@ class ModifiedTransformerModel(nn.Module):
             self.asr_transformer_blocks = nn.ModuleList([
                 TransformerBlock(d_model, num_heads, dff, dropout_rate) for _ in range(num_blocks)
             ])
-            self.asr_dense = nn.Linear(d_model, d_model)
+            # self.asr_dense = nn.Linear(d_model, d_model)
 
 
             # Cross-attention
@@ -208,20 +253,21 @@ class ModifiedTransformerModel(nn.Module):
         x = self.text_embedding(inputs)
         for block in self.text_transformer_blocks:
             x = block(x)
-        x = self.text_dense(x)
+        # x = self.text_dense(x)
 
         if not self.use_asr:
             outputs = self.final_dense(x)
-            return F.softmax(outputs, dim=-1)
+            # return F.softmax(outputs, dim=-1)
+            return outputs
         
         # ASR branch
         asr_emb = self.asr_embedding(input_asr)
         for block in self.asr_transformer_blocks:
             asr_emb = block(asr_emb)
-        asr_attention = self.asr_dense(asr_emb)
+        # asr_emb = self.asr_dense(asr_emb)
 
         # Cross-attention
-        cross_out, _ = self.cross_attention(x.transpose(0, 1), asr_attention.transpose(0, 1), asr_attention.transpose(0, 1))
+        cross_out, _ = self.cross_attention(x.transpose(0, 1), asr_emb.transpose(0, 1), asr_emb.transpose(0, 1))
         cross_out = cross_out.transpose(0, 1)
 
         # Combine
@@ -231,11 +277,21 @@ class ModifiedTransformerModel(nn.Module):
             combined = cross_out
 
         outputs = self.final_dense(combined)
-        return F.softmax(outputs, dim=-1)
 
-    def load_pretrained(self, pretrained_model_path):
-        pass
-    
+        return outputs
+
+    def load_pretrained(self, pretrained_model_path, text_branch_only=False):
+
+        pretrained_dict = torch.load(pretrained_model_path, map_location='cpu')
+        model_dict = self.state_dict()
+
+        if text_branch_only:
+            pretrained_dict = {k: v for k, v in pretrained_dict.items() if k.startswith('text_') or k.startswith('final_dense')}
+        
+        model_dict.update(pretrained_dict)
+        self.load_state_dict(model_dict)
+        print(f"Loaded pretrained weights from {pretrained_model_path}")
+        
     def predict(self, inputs, input_asr=None):
         self.eval()
         with torch.no_grad():
