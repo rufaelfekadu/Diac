@@ -106,8 +106,8 @@ class Diacritize:
         # decode predictions
         decoded_text = decode_predictions(predictions[1:-1], text)
         return decoded_text
-    
-    def predict_long(self, text, audio_path=None, text_asr=None):
+
+    def predict_sliding_window(self, text, audio_path=None, text_asr=None):
         self.model.eval()
         text = remove_diacritics(text).strip()
         # text = remove_special_chars(text)
@@ -165,7 +165,7 @@ class Diacritize:
                     if not line:
                         continue
                     audio_path = line[0]
-                    diacritized_line = self.predict(line[1], audio_path=audio_path)
+                    diacritized_line = self.predict_sliding_window(line[1], audio_path=audio_path)
                     f_out.write(diacritized_line + '\n')
             return
 
@@ -177,7 +177,7 @@ class Diacritize:
                 for line in tqdm(reader, desc="Processing lines"):
                     if not line:
                         continue
-                    diacritized_line = self.predict(line[0], text_asr=line[1])
+                    diacritized_line = self.predict_sliding_window(line[0], text_asr=line[1])
                     f_out.write(diacritized_line + '\n')
             return
         
