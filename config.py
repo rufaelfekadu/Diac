@@ -32,6 +32,9 @@ _C.TRAIN.SAVE_DIR = 'checkpoints/'
 
 # Inference configuration
 _C.INFERENCE = CN()
+_C.INFERENCE.MAX_LENGTH = 100  # Maximum length of undiacritized text for inference
+_C.WINDOW_SIZE = 50  # Window size for long text inference
+_C.BUFFER_SIZE = 25  # Buffer size for long text inference
 _C.INFERENCE.DEVICE = 'cuda'
 _C.INFERENCE.BATCH_SIZE = 16
 _C.INFERENCE.MODEL_PATH = 'checkpoints/best_model.pth'
@@ -43,7 +46,7 @@ _C.INFERENCE.OUTPUT_PATH = 'results/predictions.txt'
 # Data configuration
 _C.DATA = CN()
 _C.DATA.TRAIN_PATH = 'data/clartts/clartts_asr_train.tsv'
-_C.DATA.VAL_PATH = 'data/clartts/clartts_asr_val.tsv'
+_C.DATA.VAL_PATH = None
 _C.DATA.TEST_PATH = 'data/clartts/clartts_asr_test.tsv'
 _C.DATA.MAX_LENGTH = None  # Maximum length of undiacritized text, None means no limit
 

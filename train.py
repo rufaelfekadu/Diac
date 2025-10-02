@@ -9,10 +9,10 @@ import torch
 import torch.nn as nn
 import yaml
 
-from model import *
+from model import AVAILABLE_MODELS
 from data import TextAudioDataset, create_dataloader
 from utils import load_cfg, dump_cfg, load_constants, expand_vocabulary
-
+from config import _to_dict
 
 def train_epoch(epoch, model, dataloader, criterion, optimizer, device, use_asr=True):
     model.train()
@@ -33,16 +33,16 @@ def train_epoch(epoch, model, dataloader, criterion, optimizer, device, use_asr=
         optimizer.step()
         training_loss += loss.item()
 
-        data_iter.set_postfix(loss=training_loss / len(inputs))
+        data_iter.set_postfix(loss=loss.item())
 
     return training_loss / len(dataloader)
 
-def evaluate(model, dataloader, criterion, device):
+def evaluate(model, dataloader, criterion, device, epoch=0):
     model.eval()
     validation_loss = 0.0
     total_correct = 0
     total_tokens = 0
-    data_iter = tqdm(dataloader, desc="Evaluating", leave=False)
+    data_iter = tqdm(dataloader, desc=f"Evaluating : Epoch {epoch}")
     with torch.no_grad():
         for batch in data_iter:
             inputs, input_asr, targets = batch
@@ -71,7 +71,7 @@ def train(config, model, train_loader, val_loader, criterion, optimizer, writer)
         writer.add_scalar('train/loss', train_loss, epoch+1)
         
         if (epoch + 1) % config.TRAIN.EVAL_FREQ == 0:
-            val_loss, val_accuracy = evaluate(model, val_loader, criterion, config.TRAIN.DEVICE)
+            val_loss, val_accuracy = evaluate(model, val_loader, criterion, config.TRAIN.DEVICE, epoch=epoch+1)
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 best_model_path = f"{config.TRAIN.SAVE_DIR}/best_model.pth"
@@ -86,6 +86,8 @@ def train(config, model, train_loader, val_loader, criterion, optimizer, writer)
     return best_val_loss, model
 
 def main(configs):
+
+    os.makedirs(configs.TRAIN.SAVE_DIR, exist_ok=True)
 
     # setup logging
     logging.basicConfig(
@@ -106,7 +108,6 @@ def main(configs):
     assert configs.MODEL.ASR_VOCAB_SIZE == len(expanded_vocab), f"model asr vocab size {configs.MODEL.ASR_VOCAB_SIZE} does not match expanded vocab size {len(expanded_vocab)}"
     assert configs.MODEL.OUTPUT_SIZE == len(constants.classes_mapping), f"model output size {configs.MODEL.OUTPUT_SIZE} does not match classes mapping size {len(constants.classes_mapping)}"
 
-    os.makedirs(configs.TRAIN.SAVE_DIR, exist_ok=True)
 
     # save config to yml
     dump_cfg(configs, os.path.join(configs.TRAIN.SAVE_DIR, 'config.yml'))
@@ -137,26 +138,15 @@ def main(configs):
     logger.info("Setting up model...")
 
     # setup model
-    if configs.MODEL.TYPE == 'Transformer':
-        model_params = dict(configs.MODEL)
-        model_kwargs = {k.lower(): v for k, v in model_params.items()}
-        model = ModifiedTransformerModel(**model_kwargs)
-        
-        if configs.MODEL.PRETRAINED_PATH:
-            model.load_pretrained(configs.MODEL.PRETRAINED_PATH, text_branch_only=configs.MODEL.LOAD_TEXT_BRANCH_ONLY)
-
-        model.to(configs.TRAIN.DEVICE)
-    elif configs.MODEL.TYPE == 'LSTM':
-        model_params = dict(configs.MODEL)
-        model_kwargs = {k.lower(): v for k, v in model_params.items()}
-        model = ModifiedLSTMModel(**model_kwargs)
-        
-        if configs.MODEL.PRETRAINED_PATH:
-            model.load_pretrained(configs.MODEL.PRETRAINED_PATH, text_branch_only=configs.MODEL.LOAD_TEXT_BRANCH_ONLY)
-        model.to(configs.TRAIN.DEVICE)
-    else:
+    if configs.MODEL.TYPE not in AVAILABLE_MODELS:
         raise ValueError(f"Unknown model type: {configs.MODEL.TYPE}")
-
+    
+    model = AVAILABLE_MODELS[configs.MODEL.TYPE].from_config(configs)
+    if configs.MODEL.PRETRAINED_PATH:
+        model.load_pretrained(configs.MODEL.PRETRAINED_PATH, text_branch_only=configs.MODEL.LOAD_TEXT_BRANCH_ONLY)
+        logger.info(f"Loaded pretrained weights from {configs.MODEL.PRETRAINED_PATH}")
+        model.to(configs.TRAIN.DEVICE)
+    
     logger.info(f"Model architecture:\n{model}")
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f"Total trainable parameters: {total_params:,}")

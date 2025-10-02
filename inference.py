@@ -1,11 +1,15 @@
-from model import *
 import torch
 from utils import *
+from model import *
 from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq
-from model import ModifiedTransformerModel
+from config import _to_dict
 import csv
 from tqdm import tqdm
 
+available_models = {
+    'Transformer': TransformerModel,
+    'LSTM': LSTMModel,
+}
 
 class AsrModel:
     def __init__(self, model, processor, device='cpu', forced_ids=None):
@@ -49,17 +53,18 @@ class AsrModel:
         return transcriptions
     
 class Diacritize:
-    def __init__(self, model_path, model_class, device='cpu', asr_model=None, asr_vocab=None, **kwargs):
-        self.device = device
-        model_args = kwargs.get('model', {})
-        self.max_length = kwargs.get('data', {}).max_length
-        self.model = model_class(**model_args.__dict__)
+    def __init__(self, diac_model, asr_model=None, asr_vocab=None, **kwargs):
 
-        self.model.load_state_dict(torch.load(model_path, map_location=device))
-        self.model.to(device)
-
+        self.max_length = kwargs.get('max_length', None)
+        self.device = kwargs.get('device', 'cpu')
+        self.buffer_size = kwargs.get('buffer_size', 25)
+        self.window_size = kwargs.get('window_size', 50)
         self.asr_model = asr_model
         self.asr_vocab = asr_vocab
+
+        self.model = diac_model
+        self.model.load_pretrained(kwargs.get('model_path', None))
+        self.model.to(self.device)
         self.model.eval()
     
     def prep_data(self, text, audio_path=None, text_asr=None):
@@ -72,29 +77,30 @@ class Diacritize:
         
         X, _ = map_data(text)
 
-        # pad sequences to the max length in the batch
-        X = [seq + [constants.characters_mapping.get('<PAD>', 0)] * (self.max_length+2 - len(seq)) for seq in X]
-
         inputs = torch.tensor(X, dtype=torch.long)
     
         if text_asr:
             X_asr = map_asr_data(text_asr, self.asr_vocab)
-            input_asr = torch.tensor(X_asr, dtype=torch.long).unsqueeze(0).to(self.device)
+            input_asr = torch.tensor(X_asr, dtype=torch.long).to(self.device)
             return inputs.to(self.device), input_asr
         
         if self.asr_model and audio_path:
             asr_transcription = self.asr_model.transcribe(audio_path)
             X_asr = map_asr_data([asr_transcription], self.asr_vocab)
-            input_asr = torch.tensor(X_asr, dtype=torch.long).unsqueeze(0).to(self.device)
+            input_asr = torch.tensor(X_asr, dtype=torch.long).to(self.device)
             return inputs.to(self.device), input_asr
         
         return inputs.to(self.device), None
 
     def predict(self,text, audio_path=None, text_asr=None):
         text = remove_diacritics(text).strip()
+        text = remove_special_chars(text)
         with torch.no_grad():
             inputs, input_asr = self.prep_data(text, audio_path=audio_path, text_asr=text_asr)
-            outputs = self.model(inputs, input_asr=input_asr)
+            try:
+                outputs = self.model(inputs, inputs_asr=input_asr)
+            except Exception as e:
+                breakpoint()
             predictions = outputs.argmax(dim=-1).squeeze(0).cpu().tolist()
 
         # decode predictions
@@ -104,15 +110,16 @@ class Diacritize:
     def predict_long(self, text, audio_path=None, text_asr=None):
         self.model.eval()
         text = remove_diacritics(text).strip()
+        # text = remove_special_chars(text)
         output = ""
         if len(text) > self.max_length:
             start_idx = 0
-            end_idx = 50
+            end_idx = self.window_size
 
             while end_idx < len(text):
-                start = max(0, start_idx - 25)
-                end_idx = min(len(text), start_idx + 50)
-                end = min(len(text), end_idx + 25)
+                start = max(0, start_idx - self.buffer_size)
+                end_idx = min(len(text), start_idx + self.window_size)
+                end = min(len(text), end_idx + self.buffer_size)
 
                 chunk = text[start:end]
                 with torch.no_grad():
@@ -121,7 +128,6 @@ class Diacritize:
                     res = outputs.argmax(dim=-1).squeeze(0).cpu().tolist()
                     res = res[1:-1]  # remove <SOS> and <EOS>
                 for i in range (start_idx-start, end_idx-start):
-                    #print (i, _line)
                     char=chunk[i]
                     prediction=res[i]
                     output+= char
@@ -168,7 +174,7 @@ class Diacritize:
             print("using ASR text...")
             with open(input_file, 'r', encoding='utf-8') as f_in, open(output_file, 'w', encoding='utf-8') as f_out:
                 reader = csv.reader(f_in, delimiter='\t')
-                for line in reader:
+                for line in tqdm(reader, desc="Processing lines"):
                     if not line:
                         continue
                     diacritized_line = self.predict(line[0], text_asr=line[1])
@@ -192,26 +198,27 @@ def main(config):
     global constants
     constants = load_constants(config.CONSTANTS_PATH)
     expanded_vocab = expand_vocabulary(constants.characters_mapping, constants.classes_mapping)
-    # setup ASR model if needed
-    if config.INFERENCE.USE_ASR:
-        processor = AutoProcessor.from_pretrained(config.INFERENCE.ASR_MODEL_NAME)
-        model = AutoModelForSpeechSeq2Seq.from_pretrained(config.INFERENCE.ASR_MODEL_NAME)
-        forced_ids = processor.get_decoder_prompt_ids(language="ar", task="transcribe")
-        asr_model = AsrModel(model, processor, device=config.INFERENCE.DEVICE, forced_ids=forced_ids)
-    else:
-        asr_model = None
 
-    inference_params = dict(config.INFERENCE)
-    inference_kwargs = {k.lower(): v for k, v in inference_params.items()}
-    diacritizer = Diacritize(model_path=config.INFERENCE.MODEL_PATH,
-                            model_class=ModifiedTransformerModel,
-                            asr_model=asr_model,
+    # setup ASR model if needed
+    # if config.INFERENCE.USE_ASR:
+    #     processor = AutoProcessor.from_pretrained(config.INFERENCE.ASR_MODEL_NAME)
+    #     model = AutoModelForSpeechSeq2Seq.from_pretrained(config.INFERENCE.ASR_MODEL_NAME)
+    #     forced_ids = processor.get_decoder_prompt_ids(language="ar", task="transcribe")
+    #     asr_model = AsrModel(model, processor, device=config.INFERENCE.DEVICE, forced_ids=forced_ids)
+    # else:
+    #     asr_model = None
+
+    diac_model = available_models[config.MODEL.TYPE].from_config(config)
+    inference_params = {k.lower(): v for k, v in _to_dict(config.INFERENCE).items()}
+    diacritizer = Diacritize(diac_model=diac_model,
+                            asr_model=None,
                             asr_vocab=expanded_vocab,
-                            **inference_kwargs
+                            **inference_params,
                             )
 
     diacritizer.predict_file(config.DATA.TEST_PATH, config.INFERENCE.OUTPUT_PATH)
 
 if __name__ == "__main__":
     config = load_cfg()
+    os.makedirs(os.path.dirname(config.INFERENCE.OUTPUT_PATH), exist_ok=True)
     main(config)

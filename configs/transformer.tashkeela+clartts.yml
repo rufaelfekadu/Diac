@@ -2,7 +2,7 @@
 
 DATA:
   TRAIN_PATH: data/clartts/clartts_asr_train.tsv
-  TEST_PATH: data/clartts/clartts_test_text.txt
+  TEST_PATH: data/clartts/test.txt
   MAX_LENGTH: null
 
 MODEL:
@@ -27,7 +27,7 @@ TRAIN:
   NUM_EPOCHS: 20
   LEARNING_RATE: 0.001
   SAVE_DIR: checkpoints/transformer-tashkeela+clartts
-  SAVE_FREQ: 30
+  SAVE_FREQ: 40
   EVAL_FREQ: 1
   
 INFERENCE:
@@ -36,4 +36,4 @@ INFERENCE:
   BATCH_SIZE: 16
   MODEL_PATH: checkpoints/transformer-tashkeela+clartts/best_model.pth
   ASR_MODEL_NAME: "sashat/whisper-medium-ClassicalAr"
-  OUTPUT_PATH: checkpoints/transformer-tashkeela+clartts/results/predictions_test.txt
+  OUTPUT_PATH: checkpoints/transformer-tashkeela+clartts/results/predictions.txt

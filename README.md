@@ -28,6 +28,8 @@ pip install -r requirements.txt
 
 ### 1. Prepare Input Data
 
+Download the prepared CLArTTS and Tashkeel datasets or
+
 Run the following to download and prepare the CLArTTS data
 
 ```bash 
@@ -36,7 +38,7 @@ python prep_clartts.py
 
 The script generates a .tsv file for train and test splits of the dataset in ./data/clartts dir
 
-## 🧠 Models
+## Models
 
 ### Training
 To train a text-only model on the tashkeela corpus run
@@ -44,7 +46,7 @@ To train a text-only model on the tashkeela corpus run
 python train.py --config configs/transformer.tashkeela.yml # path to the configuration file
 ```
 
-To train text+asr model on the clartts dataset initialised from the tashkeela text-model run,
+To train text+asr model on the clartts dataset initialised from the tashkeela text-only model run,
 ```bash
 python train.py --config configs/transformer.tashkeela+clartts.yml # path to the configuration file
 ```
@@ -52,9 +54,9 @@ python train.py --config configs/transformer.tashkeela+clartts.yml # path to the
 ### Inference
 
 To Run inference update the test_path and output_path in the configuration yaml file and run the following.
-test_path can be one of the following:
-- `data.tsv`: tsv file with format (audio_paths \t undiacritized_text) or (undiacritized_text \t ASR_output)
-- `data.txt`: lines of undiacritized text
+Test file can be one of the following:
+- `.tsv`: tsv file with format (audio_paths \t undiacritized_text) or (undiacritized_text \t ASR_output)
+- `.txt`: lines of undiacritized text
 
 ```bash
 python inference.py --config configs/transformer.clartts.yml
@@ -65,16 +67,16 @@ This will create a text file with the predicted values at output_path. To run th
 python eval.py -ofp /path/to/original-text -tfp /path/to/target-text
 ```
 
-## 👏 Acknowledgments
+## Acknowledgments
 
 This project builds upon or utilizes code and resources from:
-- [Evaluation helpers](https://github.com/AliOsm/arabic-text-diacritization) for evaluation
+- [Evaluation helper](https://github.com/AliOsm/arabic-text-diacritization)
 - [CLArTTS Dataset](https://github.com/arabicsspeech/clarttscorpus)
 - [Tashkeela Corpus](https://github.com/AliOsm/arabic-text-diacritization)
 
 We thank all contributors to these resources for making their work available to the community.
 
-## ✏️ Citation
+## Citation
 
 If you find this data annotations helpful, please cite our paper:
 

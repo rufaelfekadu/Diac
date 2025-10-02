@@ -321,7 +321,7 @@ def split_data_tashkeela(
 def load_cfg():
     from config import _C as cfg
     parser = argparse.ArgumentParser(description="Train Diacritization Model")
-    parser.add_argument('--config', type=str, default='configs/transformer.tashkeela.yml', help='Path to the YAML config file')
+    parser.add_argument('--config', type=str, default='configs/lstm.clartts.yml', help='Path to the YAML config file')
     parser.add_argument("--opts", default=[], nargs=argparse.REMAINDER,
                         help="Override config: KEY VALUE pairs")
     args = parser.parse_args()

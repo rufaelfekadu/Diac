@@ -1,4 +1,4 @@
-# transformer.clartts.yml
+# transformer.tashkeela+clartts.yml
 
 DATA:
   TRAIN_PATH: data/clartts/clartts_asr_train.tsv
@@ -6,27 +6,27 @@ DATA:
   MAX_LENGTH: null
 
 MODEL:
-  TYPE: Transformer
-  MAXLEN: 300
+  TYPE: LSTM
+  MAXLEN: 186
   VOCAB_SIZE: 77
   ASR_VOCAB_SIZE: 91
   D_MODEL: 128
   NUM_HEADS: 4
   DFF: 128
-  NUM_BLOCKS: 2
+  NUM_BLOCKS: 5
   DROPOUT_RATE: 0.2
   OUTPUT_SIZE: 19
   USE_ASR: True
   WITH_CONN: False # use concatenation to combine
-  PRETRAINED_PATH: null
-  LOAD_TEXT_BRANCH_ONLY: False
+  PRETRAINED_PATH: checkpoints/lstm-tashkeela/best_model.pth
+  LOAD_TEXT_BRANCH_ONLY: True
 
 TRAIN:
   DEVICE: cuda
   BATCH_SIZE: 128
   NUM_EPOCHS: 20
   LEARNING_RATE: 0.001
-  SAVE_DIR: checkpoints/transformer-clartts
+  SAVE_DIR: checkpoints/lstm-tashkeela+clartts
   SAVE_FREQ: 40
   EVAL_FREQ: 1
   
@@ -34,6 +34,6 @@ INFERENCE:
   USE_ASR: True
   DEVICE: cuda
   BATCH_SIZE: 16
-  MODEL_PATH: checkpoints/transformer-clartts/best_model.pth
+  MODEL_PATH: checkpoints/lstm-tashkeela+clartts/best_model.pth
   ASR_MODEL_NAME: "sashat/whisper-medium-ClassicalAr"
-  OUTPUT_PATH: checkpoints/transformer-clartts/results/predictions.txt
+  OUTPUT_PATH: checkpoints/lstm-tashkeela+clartts/results/predictions.txt

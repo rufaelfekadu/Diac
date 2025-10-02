@@ -42,7 +42,10 @@ class TextAudioDataset(Dataset):
                     asr_lines.append(row[1]) 
                 elif len(row) == 1 and max_length is not None:
                     lines.extend(split_data_tashkeela([row[0]], max_length))
-        
+                else:
+                    lines.append(row[0])
+                    asr_lines.append("")  # Empty ASR text if not provided
+                    
         self.lines = lines
         self.asr_lines = asr_lines
         self.expanded_vocabulary = expanded_vocabulary
@@ -57,7 +60,7 @@ class TextAudioDataset(Dataset):
 
         if len(self.asr_lines) > 0:
             asr_line = self.asr_lines[idx]
-            output['asr'] = map_asr_data([asr_line], self.expanded_vocabulary)
+            output['asr'] = map_asr_data([asr_line], self.expanded_vocabulary)[0]
 
         return output
 
