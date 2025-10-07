@@ -189,6 +189,83 @@ class ArabicDiacritizationTokenizer:
         labels.append(self.constants.classes_mapping['<EOS>'])
         return labels
     
+    def encode_batch(self, texts: List[str], asr_texts: List[str]=[], max_length: Optional[int] = None, padding: bool = False) -> torch.Tensor:
+        """
+        Encode a batch of texts to tensor.
+        
+        Args:
+            texts: List of text strings
+            asr_texts: List of ASR text strings
+            max_length: Maximum sequence length for padding
+            
+        Returns:
+            Padded tensor of shape (batch_size, max_seq_len)
+        """
+        encoded_texts = [self.encode_text(text) for text in texts]
+        labels = [self.encode_labels(text) for text in texts]
+        encoded_asr_texts = [self.encode_asr_text(text) for text in asr_texts]
+
+        # Convert to tensors
+        tensors = [torch.tensor(encoded, dtype=torch.long) for encoded in encoded_texts]
+        labels_tensors = [torch.tensor(encoded, dtype=torch.long) for encoded in labels]
+        asr_tensors = [torch.tensor(encoded, dtype=torch.long) for encoded in encoded_asr_texts]
+
+        if not padding:
+            return tensors, asr_tensors, labels_tensors
+
+        # Pad sequences
+        pad_value = self.constants.characters_mapping.get('<PAD>', 0)
+        padded = torch.nn.utils.rnn.pad_sequence(
+            tensors, batch_first=True, padding_value=pad_value)
+
+        labels_pad_value = self.constants.classes_mapping.get('<PAD>', 0)
+        padded_labels = torch.nn.utils.rnn.pad_sequence(
+            labels_tensors, batch_first=True, padding_value=labels_pad_value)
+
+        if len(asr_tensors) > 0:
+            asr_pad_value = self.constants.expanded_vocabulary.get('<PAD>', 0)
+            padded_asr = torch.nn.utils.rnn.pad_sequence(
+                asr_tensors, batch_first=True, padding_value=asr_pad_value)
+        else:
+            padded_asr = []
+
+        # # Truncate if max_length specified
+        # if max_length and padded.size(1) > max_length:
+        #     padded = padded[:, :max_length]
+        #     padded_labels = padded_labels[:, :max_length]
+
+        # if max_length and len(asr_tensors) > 0 and padded_asr.size(1) > max_length:
+        #     padded_asr = padded_asr[:, :max_length]
+        
+        return padded, padded_asr, padded_labels
+
+    def encode_asr_batch(self, texts_asr: List[str], max_length: Optional[int] = None) -> torch.Tensor:
+        """
+        Encode a batch of ASR texts to tensor.
+        
+        Args:
+            texts_asr: List of ASR text strings
+            max_length: Maximum sequence length for padding
+            
+        Returns:
+            Padded tensor of shape (batch_size, max_seq_len)
+        """
+        encoded_texts = [self.encode_asr_text(text) for text in texts_asr]
+        
+        # Convert to tensors
+        tensors = [torch.tensor(encoded, dtype=torch.long) for encoded in encoded_texts]
+        
+        # Pad sequences
+        pad_value = self.constants.expanded_vocabulary.get('<PAD>', 0)
+        padded = torch.nn.utils.rnn.pad_sequence(
+            tensors, batch_first=True, padding_value=pad_value)
+        
+        # Truncate if max_length specified
+        if max_length and padded.size(1) > max_length:
+            padded = padded[:, :max_length]
+            
+        return padded
+    
     def decode(self, predictions: List[int], original_text: str) -> str:
         """
         Decode prediction indices to diacritized text.
@@ -232,83 +309,6 @@ class ArabicDiacritizationTokenizer:
                     decoded_text += diacritic
         
         return decoded_text
-
-    def encode_batch(self, texts: List[str], asr_texts: List[str]=[], max_length: Optional[int] = None, padding: bool = False) -> torch.Tensor:
-        """
-        Encode a batch of texts to tensor.
-        
-        Args:
-            texts: List of text strings
-            asr_texts: List of ASR text strings
-            max_length: Maximum sequence length for padding
-            
-        Returns:
-            Padded tensor of shape (batch_size, max_seq_len)
-        """
-        encoded_texts = [self.encode_text(text) for text in texts]
-        labels = [self.encode_labels(text) for text in texts]
-        encoded_asr_texts = [self.encode_asr_text(text) for text in asr_texts]
-
-        # Convert to tensors
-        tensors = [torch.tensor(encoded, dtype=torch.long) for encoded in encoded_texts]
-        labels_tensors = [torch.tensor(encoded, dtype=torch.long) for encoded in labels]
-        asr_tensors = [torch.tensor(encoded, dtype=torch.long) for encoded in encoded_asr_texts]
-
-        if not padding:
-            return tensors, asr_tensors, labels_tensors
-
-        # Pad sequences
-        pad_value = self.constants.characters_mapping.get('<PAD>', 0)
-        padded = torch.nn.utils.rnn.pad_sequence(
-            tensors, batch_first=True, padding_value=pad_value)
-
-        labels_pad_value = self.constants.classes_mapping.get('<PAD>', 0)
-        padded_labels = torch.nn.utils.rnn.pad_sequence(
-            labels_tensors, batch_first=True, padding_value=labels_pad_value)
-
-        if len(asr_tensors) > 0:
-            asr_pad_value = self.constants.expanded_vocabulary.get('<PAD>', 0)
-            padded_asr = torch.nn.utils.rnn.pad_sequence(
-                asr_tensors, batch_first=True, padding_value=asr_pad_value)
-        else:
-            padded_asr = []
-
-        # Truncate if max_length specified
-        if max_length and padded.size(1) > max_length:
-            padded = padded[:, :max_length]
-            padded_labels = padded_labels[:, :max_length]
-
-        if max_length and len(asr_tensors) > 0 and padded_asr.size(1) > max_length:
-            padded_asr = padded_asr[:, :max_length]
-        
-        return padded, padded_asr, padded_labels
-
-    def encode_asr_batch(self, texts_asr: List[str], max_length: Optional[int] = None) -> torch.Tensor:
-        """
-        Encode a batch of ASR texts to tensor.
-        
-        Args:
-            texts_asr: List of ASR text strings
-            max_length: Maximum sequence length for padding
-            
-        Returns:
-            Padded tensor of shape (batch_size, max_seq_len)
-        """
-        encoded_texts = [self.encode_asr_text(text) for text in texts_asr]
-        
-        # Convert to tensors
-        tensors = [torch.tensor(encoded, dtype=torch.long) for encoded in encoded_texts]
-        
-        # Pad sequences
-        pad_value = self.constants.expanded_vocabulary.get('<PAD>', 0)
-        padded = torch.nn.utils.rnn.pad_sequence(
-            tensors, batch_first=True, padding_value=pad_value)
-        
-        # Truncate if max_length specified
-        if max_length and padded.size(1) > max_length:
-            padded = padded[:, :max_length]
-            
-        return padded
     
     def decode_batch(self, predictions_batch: torch.Tensor, 
                     original_texts: List[str]) -> List[str]:

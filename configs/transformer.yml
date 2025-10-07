@@ -25,7 +25,6 @@ TRAIN:
   SAVE_FREQ: 30
   EVAL_FREQ: 1
   SAVE_DIR: 'checkpoints/transformer-sine-text-only/tashkeela'
-  # Lightning-specific settings
   EARLY_STOPPING_PATIENCE: 5
   ACCUMULATE_GRAD_BATCHES: 1
   VAL_CHECK_INTERVAL: 1.0
@@ -36,16 +35,16 @@ INFERENCE:
   BUFFER_SIZE: 25
   DEVICE: 'cuda'
   BATCH_SIZE: 16
-  MODEL_PATH: 'checkpoints/transformer-sine-text-only/tashkeela/best_model.ckpt'
+  MODEL_PATH: null
   ASR_MODEL_NAME: 'sashat/whisper-medium-ClassicalAr'
   USE_ASR: False
   FORCED_IDS: null
-  OUTPUT_PATH: 'results/transformer-sine-text-only_clartts.txt'
+  OUTPUT_PATH: 'results/transformer-text-only_clartts.txt'
 
 DATA:
   TRAIN_PATH: 'data/tashkeela/train.txt'
-  VAL_PATH: 'data/tashkeela/val.txt'
-  TEST_PATH: 'data/clartts/test_2.txt'
+  VAL_PATH: null
+  TEST_PATH: 'data/clartts/ClarTTS_test_Ref.txt'
   MAX_LENGTH: 270
 
 CONSTANTS_PATH: 'constants/'

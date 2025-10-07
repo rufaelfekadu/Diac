@@ -8,10 +8,11 @@ import sys
 import argparse
 import pickle as pkl
 import logging
-
+import os
 
 CONSTANTS_PATH = 'constants'
 
+os.environ["PYTHONIOENCODING"] = "utf-8"
 
 
 def get_diacritic_class(idx, line, case_ending, arabic_letters, diacritic_classes):
@@ -218,7 +219,7 @@ if __name__ == '__main__':
   with open(CONSTANTS_PATH + '/ARABIC_LETTERS_LIST.pickle', 'rb') as file:
     ARABIC_LETTERS_LIST = pkl.load(file)
 
-  with open(CONSTANTS_PATH + '/DIACRITICS_LIST.pickle', 'rb') as file:
+  with open(CONSTANTS_PATH + '/CLASSES_LIST.pickle', 'rb') as file:
     CLASSES_LIST = pkl.load(file)
   
   logger.info('\n\n')

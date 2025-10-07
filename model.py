@@ -155,6 +155,18 @@ class LSTMModel(nn.Module):
             use_asr=config.MODEL.USE_ASR
         )
     
+    def init_params(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.Embedding):
+                nn.init.normal_(m.weight, mean=0.0, std=0.02)
+            elif isinstance(m, nn.LayerNorm):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
+
     def __init__(self, maxlen, vocab_size, asr_vocab_size, output_size, d_model, num_heads, dff, num_blocks, dropout_rate=0.5, with_conn=False, use_asr=True, **kwargs):
         super(LSTMModel, self).__init__()
         self.vocab_size = vocab_size
@@ -194,6 +206,8 @@ class LSTMModel(nn.Module):
             self.final_dense = nn.Linear(combined_dim, output_size)
         else:
             self.final_dense = nn.Linear(dff, output_size)
+            
+        self.init_params()
 
     def forward(self, inputs, inputs_asr=None, **kwargs):
         # Text branch
@@ -481,8 +495,7 @@ class DiacritizationModule(L.LightningModule):
             optimizer, 
             mode='min', 
             factor=0.5, 
-            patience=5, 
-            verbose=True
+            patience=5
         )
         
         return {
@@ -529,14 +542,13 @@ class DiacritizationModule(L.LightningModule):
 
         text = self.remove_diacritics(text).strip()
         if len(text) <= self.config.INFERENCE.MAX_LENGTH:
-            output = self.predict_text(text, asr_text=text_asr)
+            output = self.predict_text(text, asr_text=text_asr)[0]
         else:
             # Sliding window
             window_size = self.config.INFERENCE.WINDOW_SIZE
             buffer_size = getattr(self.config.INFERENCE, 'BUFFER_SIZE', 25)
             start_idx = 0
-            end_idx = 0
-            r = len(text_asr)/len(text) if text_asr else 1
+            end_idx = window_size
             output = ""
             
             while end_idx < len(text):
@@ -621,7 +633,7 @@ class DiacritizationModule(L.LightningModule):
                 for line in tqdm(reader, desc="Processing lines"):
                     if not line:
                         continue
-                    diacritized_line = self.predict_sliding_window(line[0])[0]
+                    diacritized_line = self.predict_sliding_window(line[0])
                     f_out.write(diacritized_line + '\n')
             return
         

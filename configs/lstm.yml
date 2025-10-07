@@ -12,7 +12,7 @@ MODEL:
   NUM_BLOCKS: 2
   DROPOUT_RATE: 0.2
   OUTPUT_SIZE: 19
-  USE_ASR: True
+  USE_ASR: False
   PRETRAINED_PATH: null
   LOAD_TEXT_BRANCH_ONLY: True
   WITH_CONN: False
@@ -24,7 +24,7 @@ TRAIN:
   LEARNING_RATE: 0.001
   SAVE_FREQ: 30
   EVAL_FREQ: 1
-  SAVE_DIR: 'checkpoints/lstm-text-asr/clartts'
+  SAVE_DIR: 'checkpoints/lstm-text-only/tashkeela'
   # Lightning-specific settings
   EARLY_STOPPING_PATIENCE: 5
   ACCUMULATE_GRAD_BATCHES: 1
@@ -36,16 +36,16 @@ INFERENCE:
   BUFFER_SIZE: 25
   DEVICE: 'cuda'
   BATCH_SIZE: 16
-  MODEL_PATH: 'checkpoints/lstm-text-asr/clartts/tensorboard/version_1/checkpoints/best_model.ckpt'
+  MODEL_PATH: 'checkpoints/lstm-text-only/tashkeela/tensorboard/version_0/checkpoints/best_model.ckpt'
   ASR_MODEL_NAME: 'sashat/whisper-medium-ClassicalAr'
-  USE_ASR: True
+  USE_ASR: False
   FORCED_IDS: null
-  OUTPUT_PATH: 'results/lstm-text-asr_clartts.txt'
+  OUTPUT_PATH: 'results/lstm-text-only/taskeela.txt'
 
 DATA:
-  TRAIN_PATH: 'data/clartts/train_no_special.txt'
+  TRAIN_PATH: 'data/tashkeela/train.txt'
   VAL_PATH: null
-  TEST_PATH: 'data/clartts/test_no_special.txt'
+  TEST_PATH: 'data/clartts/ClarTTS_test_Ref.txt'
   MAX_LENGTH: 270
 
 CONSTANTS_PATH: 'constants/'

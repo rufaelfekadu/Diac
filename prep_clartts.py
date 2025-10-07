@@ -5,7 +5,9 @@ from tqdm import tqdm
 from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq
 from datasets import load_dataset
 
-OUT_DIR = "./data/clartts"
+os.environ["PYTHONIOENCODING"] = "utf-8"
+
+OUT_DIR = "./data/clartts_v2"
 
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -67,7 +69,7 @@ def transcribe_from_dataset(dataset, audio_column="audio", limit=None, batch_siz
 
 
 def main():
-    splits = ['train','test']
+    splits = ['train']
     for split in splits:
         dataset = load_dataset("AtharvA7k/ClArTTS", split=split, cache_dir=OUT_DIR)
         print(f"Processing split: {split} with {len(dataset)} samples")
@@ -75,7 +77,7 @@ def main():
 
         # write results to tsv file of form <original text> \t <asr text>
         os.makedirs(OUT_DIR, exist_ok=True)
-        out_path = os.path.join(OUT_DIR, f"clartts_asr_{split}.tsv")
+        out_path = os.path.join(OUT_DIR, f"{split}.tsv")
         with open(out_path, "w", encoding="utf-8") as f:
             for original, asr in zip(text_inputs, results):
                 f.write(f"{original}\t{asr}\n")

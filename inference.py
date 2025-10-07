@@ -2,6 +2,8 @@ from utils import *
 from model import DiacritizationModule
 from tokenizer import ArabicDiacritizationTokenizer
 
+os.environ["PYTHONIOENCODING"] = "utf-8"
+
 def main(config):
 
     config = load_cfg(args)

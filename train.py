@@ -15,6 +15,8 @@ from data import TextAudioDataset, create_dataloader
 from utils import load_cfg, dump_cfg, load_constants, expand_vocabulary
 from config import _to_dict
 
+os.environ["PYTHONIOENCODING"] = "utf-8"
+
 def train_epoch(epoch, model, dataloader, criterion, optimizer, device, use_asr=True):
     model.train()
     training_loss = 0.0
@@ -167,5 +169,10 @@ def main(configs):
 
 if __name__ == "__main__":
 
-    config = load_cfg()
+    parser = argparse.ArgumentParser(description='Train diacritization model')
+    parser.add_argument('--config', type=str, default='configs/lstm.yml', help="Path to the config file")
+    parser.add_argument('--opts', default=[], nargs=argparse.REMAINDER, help="Modify config options using the command-line")
+    args = parser.parse_args()
+
+    config = load_cfg(args)
     main(config)

@@ -84,7 +84,7 @@ logs/
 
 # Output
 outputs/
-checkpoints/
+checkpoints*/
 results/
 
 # Misc
