@@ -202,6 +202,7 @@ if __name__ == '__main__':
   parser.add_argument('-ofp', '--original-file-path', help='File path to original text', required=True)
   parser.add_argument('-tfp', '--target-file-path', help='File path to target text', required=True)
   parser.add_argument('-s', '--style', help='How to calculate DER and WER', required=False, default='Fadel', choices=['Zitouni', 'Fadel'])
+  parser.add_argument('--log_file', type=str, default='eval.log', help="Path to the log file")
   args = parser.parse_args()
 
   # create logger
@@ -209,7 +210,7 @@ if __name__ == '__main__':
       level=logging.INFO,
       format='%(message)s',
       handlers=[
-          logging.FileHandler("eval.log"),
+          logging.FileHandler(args.log_file),
           logging.StreamHandler()
       ]
   )

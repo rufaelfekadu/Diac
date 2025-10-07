@@ -328,14 +328,40 @@ def setup_loggers(config):
     )
     pl_loggers.append(tb_logger)
 
+    # Forward PyTorch Lightning / lightning logs to our logger so that
+    # messages produced by the library are written to the same handlers
+    # (file + stdout) that we configured above.
+    lightning_logger_names = [
+        'lightning',
+        'pytorch_lightning',
+        'lightning.pytorch',
+        'pytorch_lightning.core',
+    ]
 
-    
-    # CSV logger for easy metric analysis
+    # Get handlers from the root logger (where basicConfig placed them)
+    root_handlers = logging.getLogger().handlers
+
+    for name in lightning_logger_names:
+        lib_logger = logging.getLogger(name)
+        lib_logger.setLevel(logging.INFO)
+        # Attach root handlers to the library logger if not already attached
+        for h in root_handlers:
+            if all(type(h) != type(existing) or getattr(h, 'stream', None) != getattr(existing, 'stream', None) for existing in lib_logger.handlers):
+                lib_logger.addHandler(h)
+        # Prevent propagation to avoid duplicate messages while ensuring
+        # the logger writes to the same handlers as the root logger.
+        lib_logger.propagate = False
+
+    # Capture warnings and route them through logging
+    logging.captureWarnings(True)
+
+
+    # CSV logger for easy metric analysis (optional)
     # csv_logger = CSVLogger(
     #     save_dir=config.TRAIN.SAVE_DIR,
     #     name="csv_logs"
     # )
-    # loggers.append(csv_logger)
-    
+    # pl_loggers.append(csv_logger)
+
     return pl_loggers, logger
 
