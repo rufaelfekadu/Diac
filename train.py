@@ -10,6 +10,7 @@ import torch.nn as nn
 import yaml
 
 from model import AVAILABLE_MODELS
+from tokenizer import ArabicDiacritizationTokenizer
 from data import TextAudioDataset, create_dataloader
 from utils import load_cfg, dump_cfg, load_constants, expand_vocabulary
 from config import _to_dict

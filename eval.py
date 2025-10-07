@@ -7,8 +7,12 @@
 import sys
 import argparse
 import pickle as pkl
+import logging
+
 
 CONSTANTS_PATH = 'constants'
+
+
 
 def get_diacritic_class(idx, line, case_ending, arabic_letters, diacritic_classes):
   # Handle without case ending
@@ -87,7 +91,6 @@ def calculate_der(original_file, target_file, arabic_letters, diacritic_classes,
 
     original_classes = get_diacritics_classes(original_line, case_ending, arabic_letters, diacritic_classes, style)
     target_classes = get_diacritics_classes(target_line, case_ending, arabic_letters, diacritic_classes, style)
-
     assert(len(original_classes) == len(target_classes))
 
     for (original_class, target_class) in zip(original_classes, target_classes):
@@ -200,45 +203,59 @@ if __name__ == '__main__':
   parser.add_argument('-s', '--style', help='How to calculate DER and WER', required=False, default='Fadel', choices=['Zitouni', 'Fadel'])
   args = parser.parse_args()
 
+  # create logger
+  logging.basicConfig(
+      level=logging.INFO,
+      format='%(message)s',
+      handlers=[
+          logging.FileHandler("eval.log"),
+          logging.StreamHandler()
+      ]
+  )
+  logger = logging.getLogger(__name__)
+  
+
   with open(CONSTANTS_PATH + '/ARABIC_LETTERS_LIST.pickle', 'rb') as file:
     ARABIC_LETTERS_LIST = pkl.load(file)
 
   with open(CONSTANTS_PATH + '/DIACRITICS_LIST.pickle', 'rb') as file:
     CLASSES_LIST = pkl.load(file)
-
-  print('+---------------------------------------------------------------------------------------------+')
-  print('|       |  With case ending  | Without case ending |  With case ending  | Without case ending |')
-  print('|  DER  |------------------------------------------+------------------------------------------|')
-  print('|       |          Including no diacritic          |          Excluding no diacritic          |')
-  print('|-------+------------------------------------------+------------------------------------------|')
-  print('|   %%   |        %5.2f       |        %5.2f        |        %5.2f       |        %5.2f        |' %
+  
+  logger.info('\n\n')
+  logger.info(f'Evaluating files: {args.original_file_path} and {args.target_file_path} with style {args.style}')
+  logger.info('+---------------------------------------------------------------------------------------------+')
+  logger.info('|       |  With case ending  | Without case ending |  With case ending  | Without case ending |')
+  logger.info('|  DER  |------------------------------------------+------------------------------------------|')
+  logger.info('|       |          Including no diacritic          |          Excluding no diacritic          |')
+  logger.info('|-------+------------------------------------------+------------------------------------------|')
+  logger.info('|   %%   |        %5.2f       |        %5.2f        |        %5.2f       |        %5.2f        |' %
         (calculate_der(args.original_file_path, args.target_file_path, ARABIC_LETTERS_LIST, CLASSES_LIST, args.style),
         calculate_der(args.original_file_path, args.target_file_path, ARABIC_LETTERS_LIST, CLASSES_LIST, args.style, case_ending=False),
         calculate_der(args.original_file_path, args.target_file_path, ARABIC_LETTERS_LIST, CLASSES_LIST, args.style, no_diacritic=False),
         calculate_der(args.original_file_path, args.target_file_path, ARABIC_LETTERS_LIST, CLASSES_LIST, args.style, case_ending=False, no_diacritic=False)))
-  print('+---------------------------------------------------------------------------------------------+')
-  print('')
-  print('+---------------------------------------------------------------------------------------------+')
-  print('|       |  With case ending  | Without case ending |  With case ending  | Without case ending |')
-  print('|  WER  |------------------------------------------+------------------------------------------|')
-  print('|       |          Including no diacritic          |          Excluding no diacritic          |')
-  print('|-------+------------------------------------------+------------------------------------------|')
-  print('|   %%   |        %5.2f       |        %5.2f        |        %5.2f       |        %5.2f        |' %
+  logger.info('+---------------------------------------------------------------------------------------------+')
+  logger.info('')
+  logger.info('+---------------------------------------------------------------------------------------------+')
+  logger.info('|       |  With case ending  | Without case ending |  With case ending  | Without case ending |')
+  logger.info('|  WER  |------------------------------------------+------------------------------------------|')
+  logger.info('|       |          Including no diacritic          |          Excluding no diacritic          |')
+  logger.info('|-------+------------------------------------------+------------------------------------------|')
+  logger.info('|   %%   |        %5.2f       |        %5.2f        |        %5.2f       |        %5.2f        |' %
         (calculate_wer(args.original_file_path, args.target_file_path, ARABIC_LETTERS_LIST, CLASSES_LIST, args.style),
         calculate_wer(args.original_file_path, args.target_file_path, ARABIC_LETTERS_LIST, CLASSES_LIST, args.style, case_ending=False),
         calculate_wer(args.original_file_path, args.target_file_path, ARABIC_LETTERS_LIST, CLASSES_LIST, args.style, no_diacritic=False),
         calculate_wer(args.original_file_path, args.target_file_path, ARABIC_LETTERS_LIST, CLASSES_LIST, args.style, case_ending=False, no_diacritic=False)))
-  print('+---------------------------------------------------------------------------------------------+')
-  print('')
-  print('+---------------------------------------------------------------------------------------------+')
-  print('|       |  With case ending  | Without case ending |  With case ending  | Without case ending |')
-  print('|  SER  |------------------------------------------+------------------------------------------|')
-  print('|       |          Including no diacritic          |          Excluding no diacritic          |')
-  print('|-------+------------------------------------------+------------------------------------------|')
-  print('|   %%   |        %5.2f       |        %5.2f        |        %5.2f       |        %5.2f        |' %
+  logger.info('+---------------------------------------------------------------------------------------------+')
+  logger.info('')
+  logger.info('+---------------------------------------------------------------------------------------------+')
+  logger.info('|       |  With case ending  | Without case ending |  With case ending  | Without case ending |')
+  logger.info('|  SER  |------------------------------------------+------------------------------------------|')
+  logger.info('|       |          Including no diacritic          |          Excluding no diacritic          |')
+  logger.info('|-------+------------------------------------------+------------------------------------------|')
+  logger.info('|   %%   |        %5.2f       |        %5.2f        |        %5.2f       |        %5.2f        |' %
         (calculate_ser(args.original_file_path, args.target_file_path, ARABIC_LETTERS_LIST, CLASSES_LIST, args.style),
         calculate_ser(args.original_file_path, args.target_file_path, ARABIC_LETTERS_LIST, CLASSES_LIST, args.style, case_ending=False),
         calculate_ser(args.original_file_path, args.target_file_path, ARABIC_LETTERS_LIST, CLASSES_LIST, args.style, no_diacritic=False),
         calculate_ser(args.original_file_path, args.target_file_path, ARABIC_LETTERS_LIST, CLASSES_LIST, args.style, case_ending=False, no_diacritic=False)))
-  print('+---------------------------------------------------------------------------------------------+')
+  logger.info('+---------------------------------------------------------------------------------------------+')
   

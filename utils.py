@@ -1,21 +1,20 @@
 import pickle as pkl
 import os
 from typing import List, Tuple, Dict, Optional
-from dataclasses import dataclass
-from model import *
 import re
-import argparse
+import torch
+from lightning.pytorch.callbacks import (
+    ModelCheckpoint, 
+    EarlyStopping, 
+    LearningRateMonitor,
+    DeviceStatsMonitor
+)
+from lightning.pytorch.loggers import TensorBoardLogger, CSVLogger
 
-@dataclass
-class Constants:
-    characters_mapping: Dict[str, int]
-    arabic_letters_list: List[str]
-    diacritics_list: List[str]
-    classes_mapping: Dict[str, int]
-    rev_classes_mapping: Dict[int, str]
+from data import TextAudioDataset, create_dataloader
+import logging
 
-# Global constants instance
-constants: Constants = Constants({}, [], [], {}, {})
+from constants import constants, Constants
 
 def load_constants(aux_dataset_path: str, with_extra_train: bool = False) -> Constants:
     """
@@ -145,7 +144,6 @@ def split_data(data_raw: List[str], n: int, max_length: int = 100) -> List[str]:
     - List[str]: First n split lines
     """
     data_new = split_data_tashkeela(data_raw, max_length)
-    print("splited_data_fun ", len(data_new))
     return data_new[:n]
 
 def expand_vocabulary(CHARACTERS_MAPPING: Dict[str, int], CLASSES_MAPPING: Dict[str, int]) -> Dict[str, int]:
@@ -219,112 +217,10 @@ def decode_predictions(predictions: List[int], text: str) -> str:
 
     return decoded_text
 
-def split_data_tashkeela(
-    data_raw: List[str],
-    max_length: int = 270,
-    return_undiacritized: bool = False,
-) -> List[str]:
-    """
-    Split Arabic text into chunks whose *undiacritized* length is <= max_length.
-
-    Args:
-        data_raw: List of input strings (can contain newlines).
-        max_length: Maximum length measured on text with diacritics removed.
-        return_undiacritized: If True, return chunks without diacritics.
-                              If False (default), return original text (with diacritics).
-
-    Returns:
-        List[str]: Chunks of text whose undiacritized length <= max_length.
-    """
-
-    out: List[str] = []
-
-    # split on any whitespace blocks to "tokens" (words/punctuation)
-    def tokenize(s: str) -> List[str]:
-        return re.findall(r"\S+", s.strip())
-
-    # split a single long token by characters so that each chunk (undiacritized) <= max_length
-    def split_long_token(token: str) -> List[str]:
-        chunks = []
-        buf_chars = []
-        buf_len = 0
-        for ch in token:
-            ch_len = len(remove_diacritics(ch))
-            # if adding this char would exceed limit and we already have some chars, flush
-            if buf_chars and buf_len + ch_len > max_length:
-                chunks.append("".join(buf_chars))
-                buf_chars = [ch]
-                buf_len = ch_len
-            else:
-                buf_chars.append(ch)
-                buf_len += ch_len
-        if buf_chars:
-            chunks.append("".join(buf_chars))
-        return chunks
-
-    for line in data_raw:
-        for sub in line.split("\n"):
-            base = sub.strip()
-            if not base:
-                continue
-
-            # quick accept if whole line fits
-            if len(remove_diacritics(base)) <= max_length:
-                out.append(remove_diacritics(base) if return_undiacritized else base)
-                continue
-
-            # otherwise, word-wise packing
-            tokens = tokenize(base)
-            cur = []                 # list of original tokens
-            cur_len = 0              # undiacritized length of current line
-            for tok in tokens:
-                tok_len = len(remove_diacritics(tok))
-                sep = 1 if cur else 0  # space if we already have content
-
-                # fits as a whole token
-                if cur_len + sep + tok_len <= max_length:
-                    if sep:
-                        cur.append(" ")
-                        cur_len += 1
-                    cur.append(tok)
-                    cur_len += tok_len
-                    continue
-
-                # flush current line if it has content
-                if cur:
-                    joined = "".join(cur)
-                    out.append(remove_diacritics(joined) if return_undiacritized else joined)
-                    cur, cur_len = [], 0
-
-                # token itself is too long -> split by characters
-                if tok_len > max_length:
-                    pieces = split_long_token(tok)
-                    for i, piece in enumerate(pieces):
-                        piece_len = len(remove_diacritics(piece))
-                        # each piece is guaranteed <= max_length; flush immediately
-                        out.append(remove_diacritics(piece) if return_undiacritized else piece)
-                    # after splitting a long token, we start fresh
-                    cur, cur_len = [], 0
-                else:
-                    # start new line with this token
-                    cur = [tok]
-                    cur_len = tok_len
-
-            # flush remainder
-            if cur:
-                joined = "".join(cur)
-                out.append(remove_diacritics(joined) if return_undiacritized else joined)
-
-    return out
 
 
-def load_cfg():
+def load_cfg(args):
     from config import _C as cfg
-    parser = argparse.ArgumentParser(description="Train Diacritization Model")
-    parser.add_argument('--config', type=str, default='configs/lstm.clartts.yml', help='Path to the YAML config file')
-    parser.add_argument("--opts", default=[], nargs=argparse.REMAINDER,
-                        help="Override config: KEY VALUE pairs")
-    args = parser.parse_args()
     if args.config:
         cfg.merge_from_file(args.config)
     if args.opts:
@@ -337,3 +233,109 @@ def dump_cfg(config, path):
     from config import _to_dict
     with open(path, 'w') as f:
         yaml.dump(_to_dict(config), f)
+
+
+def setup_data_loaders(config, tokenizer):
+    """Setup train, validation, and test data loaders."""
+    # Create datasets
+    train_data = TextAudioDataset(
+        config.DATA.TRAIN_PATH, 
+        tokenizer,
+        max_length=config.DATA.MAX_LENGTH
+    )       
+
+    test_data = TextAudioDataset(
+        config.DATA.TEST_PATH, 
+        tokenizer,  
+        max_length=config.DATA.MAX_LENGTH
+    )
+
+    # Handle validation data
+    if hasattr(config.DATA, 'VAL_PATH') and config.DATA.VAL_PATH:
+        val_data = TextAudioDataset(
+            config.DATA.VAL_PATH, 
+            tokenizer, 
+            max_length=config.DATA.MAX_LENGTH
+        )
+    else:
+        # Split train dataset into training and validation sets
+        val_size = int(0.1 * len(train_data))
+        train_size = len(train_data) - val_size
+        train_data, val_data = torch.utils.data.random_split(
+            train_data, [train_size, val_size]
+        )
+    
+    # Create data loaders
+    train_loader = create_dataloader(train_data, config.TRAIN.BATCH_SIZE)
+    val_loader = create_dataloader(val_data, config.TRAIN.BATCH_SIZE, shuffle=False)
+    test_loader = create_dataloader(test_data, config.TRAIN.BATCH_SIZE, shuffle=False)
+    
+    return train_loader, val_loader, test_loader, len(train_data), len(val_data), len(test_data)
+
+def setup_callbacks(config):
+    """Setup Lightning callbacks."""
+    callbacks = []
+    
+    # Model checkpointing
+    checkpoint_callback = ModelCheckpoint(
+        filename='best_model',
+        monitor='val_loss',
+        mode='min',
+        save_top_k=1,
+        save_last=True,
+        verbose=True
+    )
+    callbacks.append(checkpoint_callback)
+    
+    # Early stopping
+    early_stopping = EarlyStopping(
+        monitor='val_loss',
+        mode='min',
+        patience=getattr(config.TRAIN, 'EARLY_STOPPING_PATIENCE', 10),
+        verbose=True
+    )
+    callbacks.append(early_stopping)
+    
+    # # Learning rate monitoring
+    # lr_monitor = LearningRateMonitor(logging_interval='epoch')
+    # callbacks.append(lr_monitor)
+    
+    # Device stats monitoring 
+    # if torch.cuda.is_available():
+    #     device_stats = DeviceStatsMonitor()
+    #     callbacks.append(device_stats)
+    
+    return callbacks
+
+def setup_loggers(config):
+    """Setup Lightning loggers."""
+    pl_loggers = []
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(f"{config.TRAIN.SAVE_DIR}/training.log"),
+            logging.StreamHandler()
+        ]
+    )
+    logger = logging.getLogger(__name__)
+    
+    # TensorBoard logger
+    tb_logger = TensorBoardLogger(
+        save_dir=config.TRAIN.SAVE_DIR,
+        name="tensorboard",
+    )
+    pl_loggers.append(tb_logger)
+
+
+    
+    # CSV logger for easy metric analysis
+    # csv_logger = CSVLogger(
+    #     save_dir=config.TRAIN.SAVE_DIR,
+    #     name="csv_logs"
+    # )
+    # loggers.append(csv_logger)
+    
+    return pl_loggers, logger
+
