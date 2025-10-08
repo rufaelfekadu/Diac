@@ -41,30 +41,41 @@ The script generates a .tsv file for train and test splits of the dataset in ./d
 ## Models
 
 ### Training
-To train a text-only model on the tashkeela corpus run
+
+To run all the experiments described in the paper run
 ```bash
-python train.py --config configs/transformer.tashkeela.yml # path to the configuration file
+bash scripts/train.sh # path to the configuration file
 ```
 
-To train text+asr model on the clartts dataset initialised from the tashkeela text-only model run,
+To train LSTM text+asr model on the clartts dataset initialised from the tashkeela text-only model run,
 ```bash
-python train.py --config configs/transformer.tashkeela+clartts.yml # path to the configuration file
+python train_lightning.py --config configs/${model}.yml --opts \
+        DATA.TRAIN_PATH "path/to/train" \
+        DATA.VAL_PATH "path/to/val" \ #if val set is available otherwise train will be split
+        MODEL.USE_ASR True \
+        MODEL.PRETRAINED_PATH "path/to/pretrained/tashkeela-model" \
+        MODEL.LOAD_TEXT_BRANCH_ONLY True \
+        TRAIN.SAVE_DIR "path/to/save/dir"
 ```
 
 ### Inference
 
-To Run inference update the test_path and output_path in the configuration yaml file and run the following.
-Test file can be one of the following:
+To Run inference run the following script. Test file can be one of the following:
 - `.tsv`: tsv file with format (audio_paths \t undiacritized_text) or (undiacritized_text \t ASR_output)
 - `.txt`: lines of undiacritized text
 
 ```bash
-python inference.py --config configs/transformer.clartts.yml
+python inference.py --config configs/${model}.yml --opts \
+        DATA.TEST_PATH "path/to/test" \
+        MODEL.USE_ASR True \ 
+        INFERENCE.MODEL_PATH "/path/to/model/checkpoint" \
+        INFERENCE.OUTPUT_PATH "/path/to/output.txt" \
+        INFERENCE.USE_ASR #wheather to use the asr input
 ```
 This will create a text file with the predicted values at output_path. To run the evaluation use
 
 ```bash
-python eval.py -ofp /path/to/original-text -tfp /path/to/target-text
+python eval.py -ofp /path/to/predicted-text -tfp /path/to/target-text
 ```
 
 ## Acknowledgments

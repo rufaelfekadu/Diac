@@ -106,9 +106,9 @@ class TransformerBlock(nn.Module):
         self.rate = rate
 
         # self.in_proj = nn.Linear(d_model, d_model * num_heads)
-        self.multi_head_attention = nn.MultiheadAttention(d_model*num_heads, num_heads, dropout=rate, batch_first=True)
+        self.multi_head_attention = nn.MultiheadAttention(d_model, num_heads, dropout=rate, batch_first=True)
         self.dropout1 = nn.Dropout(rate)
-        self.out_proj = nn.Linear(d_model*num_heads, d_model)
+        # self.out_proj = nn.Linear(d_model*num_heads, d_model)
         self.layer_norm1 = nn.LayerNorm(d_model, eps=1e-6)
         self.ffn = nn.Sequential(
             nn.Linear(d_model, dff),
@@ -122,14 +122,14 @@ class TransformerBlock(nn.Module):
         # Self-attention
         # inputs = self.in_proj(inputs)
         # brodcast the last dim of inputs to (batch_size, seq_len, d_model, num_heads)
-        inputs_pre = inputs
-        inputs = inputs.repeat(1, 1, self.num_heads)  # (batch_size, seq_len, d_model * num_heads)
-        inputs = inputs.view(inputs.size(0), inputs.size(1), self.d_model*self.num_heads)
+        # inputs_pre = inputs
+        # inputs = inputs.repeat(1, 1, self.num_heads)  # (batch_size, seq_len, d_model * num_heads)
+        # inputs = inputs.view(inputs.size(0), inputs.size(1), self.d_model*self.num_heads)
 
         attention_output, _ = self.multi_head_attention(inputs, inputs, inputs, attn_mask=mask)
         attention_output = self.dropout1(attention_output)
-        attention_output = self.out_proj(attention_output)
-        attention_output = self.layer_norm1(inputs_pre + attention_output)
+        # attention_output = self.out_proj(attention_output)
+        attention_output = self.layer_norm1(inputs + attention_output)
 
         # Feed-forward
         ffn_output = self.ffn(attention_output)
@@ -307,7 +307,7 @@ class TransformerModel(nn.Module):
 
         # ASR branch
         if use_asr:
-            self.asr_embedding = TokenAndPositionEmbedding(maxlen, asr_vocab_size, d_model*num_heads)
+            self.asr_embedding = TokenAndPositionEmbedding(maxlen, asr_vocab_size, d_model)
             self.asr_transformer_blocks = nn.ModuleList([
                 TransformerBlock(d_model, num_heads, dff, dropout_rate) for _ in range(num_blocks)
             ])
@@ -542,7 +542,7 @@ class DiacritizationModule(L.LightningModule):
 
         text = self.remove_diacritics(text).strip()
         if len(text) <= self.config.INFERENCE.MAX_LENGTH:
-            output = self.predict_text(text, asr_text=text_asr)[0]
+            output = self.predict_text(text, asr_text=text_asr)
         else:
             # Sliding window
             window_size = self.config.INFERENCE.WINDOW_SIZE
@@ -573,7 +573,6 @@ class DiacritizationModule(L.LightningModule):
                 output += decoded_chunk  
 
                 start_idx = end_idx
-            
         return output
     
     def remove_diacritics(self, text:str) -> str:
@@ -633,7 +632,7 @@ class DiacritizationModule(L.LightningModule):
                 for line in tqdm(reader, desc="Processing lines"):
                     if not line:
                         continue
-                    diacritized_line = self.predict_sliding_window(line[0])
+                    diacritized_line = self.predict_sliding_window(line[0])[0]
                     f_out.write(diacritized_line + '\n')
             return
         
@@ -664,10 +663,10 @@ if __name__ == "__main__":
             asr_vocab_size=1200, 
             d_model=128, 
             num_heads=4, 
-            dff=128, 
+            dff=512, 
             num_blocks=2, 
             output_size=19,
-            use_asr=False,
+            use_asr=True,
         )
 
     input_text = torch.randint(0, 1000, (32, 80))  # Batch of 32 samples, each of length 100
