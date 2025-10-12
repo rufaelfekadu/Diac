@@ -210,7 +210,7 @@ if __name__ == '__main__':
       level=logging.INFO,
       format='%(message)s',
       handlers=[
-          logging.FileHandler(args.log_file),
+          # logging.FileHandler(args.log_file),
           logging.StreamHandler()
       ]
   )

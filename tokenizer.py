@@ -188,6 +188,26 @@ class ArabicDiacritizationTokenizer:
         
         labels.append(self.constants.classes_mapping['<EOS>'])
         return labels
+
+    def encode(self, text: str, asr_text: str = None, return_tensor=False):
+        """
+        Encode text and ASR text to indices.
+        
+        Args:
+            text: Input text string
+            asr_text: ASR text string
+        Returns:
+            Tuple of (encoded text, encoded ASR text, diacritic labels)
+        """
+        encoded_text = self.encode_text(text)
+        encoded_asr = self.encode_asr_text(asr_text) if asr_text else None
+        labels = self.encode_labels(text)
+        if return_tensor:
+            encoded_text = torch.tensor(encoded_text, dtype=torch.long)
+            encoded_asr = torch.tensor(encoded_asr, dtype=torch.long) if asr_text else None
+            labels = torch.tensor(labels, dtype=torch.long)
+        
+        return encoded_text, encoded_asr, labels
     
     def encode_batch(self, texts: List[str], asr_texts: List[str]=[], max_length: Optional[int] = None, padding: bool = False) -> torch.Tensor:
         """

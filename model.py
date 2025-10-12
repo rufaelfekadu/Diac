@@ -245,7 +245,7 @@ class LSTMModel(nn.Module):
         
         try:
             # Load Lightning checkpoint
-            checkpoint = torch.load(pretrained_model_path, map_location='cpu')
+            checkpoint = torch.load(pretrained_model_path, map_location='cpu', weights_only=False)
             
             if 'state_dict' in checkpoint:
                 # Extract model weights from Lightning checkpoint
@@ -358,7 +358,7 @@ class TransformerModel(nn.Module):
         
         try:
             # Load Lightning checkpoint
-            checkpoint = torch.load(pretrained_model_path, map_location='cpu')
+            checkpoint = torch.load(pretrained_model_path, map_location='cpu', weights_only=False)
             
             if 'state_dict' in checkpoint:
                 # Extract model weights from Lightning checkpoint
@@ -539,8 +539,12 @@ class DiacritizationModule(L.LightningModule):
         self.model.eval()
         original_text = text
 
-
         text = self.remove_diacritics(text).strip()
+
+        _len = len(text)
+        r = len(text_asr)/ _len if text_asr else 1
+
+        
         if len(text) <= self.config.INFERENCE.MAX_LENGTH:
             output = self.predict_text(text, asr_text=text_asr)
         else:
@@ -557,22 +561,22 @@ class DiacritizationModule(L.LightningModule):
                 end_idx = min(len(text), start_idx + window_size)
 
                 chunk = text[start:end]
-                encoded_chunk, encoded_asr_chunk, _ = self.tokenizer.encode_batch(
-                    [chunk], 
-                    padding=True
+                chunk_asr = text_asr[start*r:end*r] if text_asr else []
+                encoded_chunk, encoded_asr_chunk, _ = self.tokenizer.encode(
+                    chunk,
+                    chunk_asr
                 )
                 encoded_chunk = encoded_chunk.to(self.device)
-                encoded_asr_chunk = encoded_asr_chunk.to(self.device) if text_asr else None
-                
+                encoded_asr_chunk = encoded_asr_chunk.to(self.device) if chunk_asr else None
+
                 with torch.no_grad():
                     outputs = self.model(encoded_chunk, inputs_asr=encoded_asr_chunk).squeeze(0)
                     predictions = outputs.argmax(dim=-1).cpu().tolist()[1:-1]  # remove <sos> and <eos> 
 
                 decoded_chunk = self.tokenizer.decode(predictions[start_idx:end_idx], chunk[start_idx:end_idx])
-                
                 output += decoded_chunk  
-
                 start_idx = end_idx
+
         return output
     
     def remove_diacritics(self, text:str) -> str:

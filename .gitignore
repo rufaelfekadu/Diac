@@ -85,7 +85,8 @@ logs/
 # Output
 outputs/
 checkpoints*/
-results/
+results*/
+eval/
 
 # Misc
 .DS_Store

@@ -14,7 +14,7 @@
 Automatic text-based diacritic restoration models generally have high diacritic error rates when applied to speech transcripts as a result of domain and style shifts in spoken language. In this work, we explore the possibility of improving the performance of automatic diacritic restoration when applied to speech data by utilizing parallel spoken utterances. In particular, we use the pre-trained Whisper ASR model fine-tuned on relatively small amounts of diacritized Arabic speech data to produce rough diacritized transcripts for the speech utterances, which we then use as an additional input for diacritic restoration models. The proposed framework consistently improves diacritic restoration performance compared to text-only baselines. Our results highlight the inadequacy of current text-based diacritic restoration models for speech data sets and provide a new baseline for speech-based diacritic restoration.
 
 
-## 📦 Installation
+## Installation
 
 ```bash
 git clone https://github.com/rufaelfekadu/Diac
@@ -24,30 +24,54 @@ conda activate diac
 pip install -r requirements.txt
 ```
 
-## 📁 Data Preparation
+## Getting Started
 
 ### 1. Prepare Input Data
 
-Download the prepared CLArTTS and Tashkeel datasets or
+Download the prepared CLArTTS and Tashkeel datasets using.
+```bash
+git clone https://github.com/rufaelfekadu/arabic-diacritization-data.git data/
+```
 
-Run the following to download and prepare the CLArTTS data
+or
 
+Run the following to prepare the CLArTTS from scratch
 ```bash 
 python prep_clartts.py
 ```
 
-The script generates a .tsv file for train and test splits of the dataset in ./data/clartts dir
+The script generates train+asr.txt, test+asr.txt and test.txt file for train and test splits of the dataset in ./data/clartts dir
 
-## Models
 
-### Training
+### 2. Training
 
+#### a. Sweep
 To run all the experiments described in the paper run
 ```bash
-bash scripts/train.sh # path to the configuration file
+bash scripts/sweep.sh #[Options] --max-jobs <max number of jobs> --start <0,1,2> --stop_stage <0,1,2>
 ```
 
-To train LSTM text+asr model on the clartts dataset initialised from the tashkeela text-only model run,
+This will run all the experiments mentioned with folder structure
+```bash
+results
+├── lstm-text+asr
+│   ├── clartts
+│   │   ├── inference.done
+│   │   ├── logs
+│   │   │   ├── decode-*.log
+│   │   │   ├── eval-*.log
+│   │   │   └── train-*.log
+│   │   ├── predictions.txt
+│   │   ├── tensorboard
+│   │   │   └── version_0
+│   │   ├── training.done
+```
+eval-*.log containes the evaluation results.
+
+#### b. Manual Training
+
+To train a model manually run the following command. This command  for example trains an LSTM text+asr model on the clartts dataset initialised from the tashkeela text-only model,
+
 ```bash
 python train_lightning.py --config configs/${model}.yml --opts \
         DATA.TRAIN_PATH "path/to/train" \
@@ -66,11 +90,11 @@ To Run inference run the following script. Test file can be one of the following
 
 ```bash
 python inference.py --config configs/${model}.yml --opts \
-        DATA.TEST_PATH "path/to/test" \
+        DATA.TEST_PATH "path/to/test.(txt/tsv)" \
         MODEL.USE_ASR True \ 
         INFERENCE.MODEL_PATH "/path/to/model/checkpoint" \
         INFERENCE.OUTPUT_PATH "/path/to/output.txt" \
-        INFERENCE.USE_ASR #wheather to use the asr input
+        INFERENCE.USE_ASR True #wheather to use the asr input
 ```
 This will create a text file with the predicted values at output_path. To run the evaluation use
 

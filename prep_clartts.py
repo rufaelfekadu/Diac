@@ -71,17 +71,23 @@ def transcribe_from_dataset(dataset, audio_column="audio", limit=None, batch_siz
 def main():
     splits = ['train']
     for split in splits:
-        dataset = load_dataset("AtharvA7k/ClArTTS", split=split, cache_dir=OUT_DIR)
+        dataset = load_dataset("MBZUAI/ClArTTS", split=split, cache_dir=OUT_DIR)
         print(f"Processing split: {split} with {len(dataset)} samples")
         text_inputs, results = transcribe_from_dataset(dataset)
 
         # write results to tsv file of form <original text> \t <asr text>
         os.makedirs(OUT_DIR, exist_ok=True)
-        out_path = os.path.join(OUT_DIR, f"{split}.tsv")
+        out_path = os.path.join(OUT_DIR, f"{split}+asr.txt")
         with open(out_path, "w", encoding="utf-8") as f:
             for original, asr in zip(text_inputs, results):
                 f.write(f"{original}\t{asr}\n")
 
+        if split == 'test':
+            # also write original text only to a separate file for evaluation
+            asr_out_path = os.path.join(OUT_DIR, f"{split}.txt")
+            with open(asr_out_path, "w", encoding="utf-8") as f:
+                for original in text_inputs:
+                    f.write(f"{original}\n")
 
 if __name__ == "__main__":
     main()
