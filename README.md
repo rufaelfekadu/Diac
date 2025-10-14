@@ -1,4 +1,4 @@
-<h1 align="center"> Automatic Restoration of Diacritics for Speech Data Set </h1>
+<h1 align="center">Automatic Restoration of Diacritics for Speech Data Sets</h1>
 
 <div align="center">
 
@@ -11,14 +11,14 @@
 > **Accepted at NAACL 2024**
 
 ## Abstract
-Automatic text-based diacritic restoration models generally have high diacritic error rates when applied to speech transcripts as a result of domain and style shifts in spoken language. In this work, we explore the possibility of improving the performance of automatic diacritic restoration when applied to speech data by utilizing parallel spoken utterances. In particular, we use the pre-trained Whisper ASR model fine-tuned on relatively small amounts of diacritized Arabic speech data to produce rough diacritized transcripts for the speech utterances, which we then use as an additional input for diacritic restoration models. The proposed framework consistently improves diacritic restoration performance compared to text-only baselines. Our results highlight the inadequacy of current text-based diacritic restoration models for speech data sets and provide a new baseline for speech-based diacritic restoration.
+Automatic text-based diacritic restoration models often exhibit high diacritic error rates when applied to speech transcripts due to domain and style shifts in spoken language. In this work, we investigate improving automatic diacritic restoration for speech data by leveraging parallel spoken utterances. Specifically, we fine-tune the pre-trained Whisper ASR model on a relatively small amount of diacritized Arabic speech to produce rough diacritized transcripts for the utterances, which we then use as an additional input to diacritic restoration models. The proposed framework consistently improves performance over text-only baselines. Our results highlight the inadequacy of current text-based diacritic restoration models for speech datasets and establish a new baseline for speech-based diacritic restoration.
 
 
 ## Installation
 
 ```bash
 git clone https://github.com/rufaelfekadu/Diac
-cd Diacritization
+cd Diac
 conda create -n diac python=3.12
 conda activate diac
 pip install -r requirements.txt
@@ -26,77 +26,83 @@ pip install -r requirements.txt
 
 ## Getting Started
 
-### 1. Prepare Input Data
+### 1. Prepare input data
 
-Download the prepared CLArTTS and Tashkeel datasets using.
+Download the prepared CLArTTS and Tashkeela datasets:
 ```bash
 git clone https://github.com/rufaelfekadu/arabic-diacritization-data.git data/
 ```
 
-or
+Alternatively, to prepare CLArTTS from scratch, run:
 
-Run the following to prepare the CLArTTS from scratch
 ```bash 
 python prep_clartts.py
 ```
 
-The script generates train+asr.txt, test+asr.txt and test.txt file for train and test splits of the dataset in ./data/clartts dir
+This script generates train+asr.txt, test+asr.txt, and test.txt for the train and test splits in data/clartts/.
 
 
 ### 2. Training
 
 #### a. Sweep
-To run all the experiments described in the paper run
+To run all experiments described in the paper, execute:
 ```bash
 bash scripts/sweep.sh #[Options] --max-jobs <max number of jobs> --start <0,1,2> --stop_stage <0,1,2>
 ```
 
-This will run all the experiments mentioned with folder structure
-```bash
-results
-├── lstm-text+asr
-│   ├── clartts
-│   │   ├── inference.done
-│   │   ├── logs
+This will produce a folder structure similar to:
+```text
+results/
+├── lstm-text+asr/
+│   ├── clartts/
+│   │   ├── logs/
 │   │   │   ├── decode-*.log
 │   │   │   ├── eval-*.log
 │   │   │   └── train-*.log
+│   │   ├── tensorboard/
+│   │   │   └── version_0/
 │   │   ├── predictions.txt
-│   │   ├── tensorboard
-│   │   │   └── version_0
 │   │   ├── training.done
+│   │   └── inference.done
+│   └── ...
+├── transformer-text+asr/
+│   └── ...
+└── ...
 ```
-eval-*.log containes the evaluation results.
+The eval-*.log files contain the evaluation results.
 
-#### b. Manual Training
+#### b. Manual training
 
-To train a model manually run the following command. This command  for example trains an LSTM text+asr model on the clartts dataset initialised from the tashkeela text-only model,
-
+To train a model manually, run:
 ```bash
-python train_lightning.py --config configs/${model}.yml --opts \
-        DATA.TRAIN_PATH "path/to/train" \
-        DATA.VAL_PATH "path/to/val" \ #if val set is available otherwise train will be split
+python train_lightning.py --config configs/transformer.yml --opts \
+        DATA.TRAIN_PATH "data/NADI-2025/nadi-all/train.tsv" \
+        DATA.VAL_PATH "data/NADI-2025/nadi-all/dev.tsv" \
         MODEL.USE_ASR True \
-        MODEL.PRETRAINED_PATH "path/to/pretrained/tashkeela-model" \
-        MODEL.LOAD_TEXT_BRANCH_ONLY True \
-        TRAIN.SAVE_DIR "path/to/save/dir"
+        MODEL.LOAD_TEXT_BRANCH_ONLY False \
+        TRAIN.SAVE_DIR "results/transformer-text+asr/nadi"
+        MODEL.PRETRAINED_PATH "results/transformer-text-only/tashkeela/tensorboard/version_0/checkpoints/best_model.ckpt" \
+
 ```
+
+
+Note: Set DATA.VAL_PATH only if a validation set is available; otherwise, the training set will be split automatically.
 
 ### Inference
 
-To Run inference run the following script. Test file can be one of the following:
-- `.tsv`: tsv file with format (audio_paths \t undiacritized_text) or (undiacritized_text \t ASR_output)
-- `.txt`: lines of undiacritized text
+To run inference, use the following. The test file can be one of:
+- `.tsv`: a TSV file in either format: `(audio_paths\tundiacritized_text)` or `(undiacritized_text\tASR_output)`
+- `.txt`: plain text file with one line of undiacritized text per line
 
 ```bash
-python inference.py --config configs/${model}.yml --opts \
-        DATA.TEST_PATH "path/to/test.(txt/tsv)" \
-        MODEL.USE_ASR True \ 
-        INFERENCE.MODEL_PATH "/path/to/model/checkpoint" \
-        INFERENCE.OUTPUT_PATH "/path/to/output.txt" \
-        INFERENCE.USE_ASR True #wheather to use the asr input
+python inference.py --config configs/transformer.yml --opts \
+        DATA.TEST_PATH "data/clartts/test+asr.txt" \
+        MODEL.USE_ASR True \
+        INFERENCE.MODEL_PATH "results/transformer-text+asr/tashkeela+clartts+nadi/tensorboard/version_1/checkpoints/best_model.ckpt" \
+        INFERENCE.OUTPUT_PATH "results/transformer-text+asr/tashkeela+clartts+nadi/predictions.txt" \
+        INFERENCE.USE_ASR True
 ```
-This will create a text file with the predicted values at output_path. To run the evaluation use
+This will create a text file with the predicted values at INFERENCE.OUTPUT_PATH. To evaluate, run:
 
 ```bash
 python eval.py -ofp /path/to/predicted-text -tfp /path/to/target-text
@@ -113,7 +119,7 @@ We thank all contributors to these resources for making their work available to 
 
 ## Citation
 
-If you find this data annotations helpful, please cite our paper:
+If you find this repository helpful, please cite our paper:
 
 ```bibtex
 @inproceedings{shatnawi2024automatic,
