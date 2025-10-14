@@ -5,14 +5,15 @@ from constants import constants
 from typing import List, Tuple, Optional
 import csv
 from tokenizer import ArabicDiacritizationTokenizer
+from pyarabic.araby import strip_diacritics as remove_diacritics
 
-def remove_diacritics(data_raw: str) -> str:
-    """
-    Remove diacritics from text.
-    """
-    if not constants or not constants.diacritics_list:
-        raise ValueError("Constants not loaded. Call load_constants first.")
-    return data_raw.translate(str.maketrans('', '', ''.join(constants.diacritics_list)))
+# def remove_diacritics(data_raw: str) -> str:
+#     """
+#     Remove diacritics from text.
+#     """
+#     if not constants or not constants.diacritics_list:
+#         raise ValueError("Constants not loaded. Call load_constants first.")
+#     return data_raw.translate(str.maketrans('', '', ''.join(constants.diacritics_list)))
 
 def split_data_tashkeela(
     data_raw: List[str],
@@ -112,28 +113,6 @@ def split_data_tashkeela(
 
     return out
 
-# class TextDataset(Dataset):
-#     """
-#     Dataset class for text-only data.
-#     """
-#     def __init__(self, data_path: List[str]):
-#         # load the tsv file
-#         with open(data_path, 'r', encoding='utf-8') as f:
-#             reader = csv.reader(f, delimiter='\t')
-#             lines = [row[0] for row in reader if row]  # Assuming text is in the first column
-#         self.lines = lines
-
-#     def __len__(self) -> int:
-#         return len(self.lines)
-
-#     def __getitem__(self, idx: int) -> Tuple[List[int], List[int]]:
-#         line = self.lines[idx]
-#         X, Y = map_data([line])
-#         return {
-#             "text": X[0],
-#             "label": Y[0]
-#             }
-
 class TextAudioDataset(Dataset):
     """
     Dataset class for text + audio (ASR) data.
@@ -141,22 +120,24 @@ class TextAudioDataset(Dataset):
     def __init__(self, data_path: str, tokenizer: ArabicDiacritizationTokenizer, max_length=None):
 
         self.tokenizer = tokenizer
-        with open(data_path, 'r', encoding='utf-8') as f:
-            reader = csv.reader(f, delimiter='\t')
-            lines = []
-            asr_lines = []
-            for row in reader:
-                if len(row) >= 2:
-                    lines.append(row[0])      
-                    asr_lines.append(row[1]) 
-                elif len(row) == 1:
-                    if max_length:
-                        lines.extend(split_data_tashkeela([row[0]], max_length))
+        lines = []
+        asr_lines = []
+        data_paths = data_path.split(",")  # allow multiple files separated by commas
+        for data_path in data_paths:
+            with open(data_path, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f, delimiter='\t') 
+                for row in reader:
+                    if len(row) >= 2:
+                        lines.append(row[0])      
+                        asr_lines.append(row[1]) 
+                    elif len(row) == 1:
+                        if max_length:
+                            lines.extend(split_data_tashkeela([row[0]], max_length))
+                        else:
+                            lines.append(row[0])
                     else:
-                        lines.append(row[0])
-                else:
-                    continue  # Skip empty lines
-                    
+                        continue  # Skip empty lines
+                        
         self.lines, self.asr_lines, self.labels = self.tokenizer.encode_batch(lines, asr_lines, padding=False)
     
         assert len(self.lines) == len(self.labels), "Mismatch in data lengths"
@@ -200,7 +181,9 @@ def collate_fn(batch: List[Tuple]) -> Tuple[torch.Tensor, ...]:
 
 if __name__ == "__main__":
 
-    data_path = "data/clartts/test_no_special.txt"
+    from utils import load_constants
+    load_constants('constants')
+    data_path = "data/clartts/test.txt,data/NADI-2025/nadi-all/dev.tsv"
     tokenizer = ArabicDiacritizationTokenizer(constants_path='constants')
 
     # text_dataset = TextDataset(data_path)
@@ -208,7 +191,7 @@ if __name__ == "__main__":
 
     # text_loader = create_dataloader(text_dataset, batch_size=2)
     text_audio_loader = create_dataloader(text_audio_dataset, batch_size=2)
-
+    print(f"Text+Audio dataset size: {len(text_audio_dataset)}")
     for X, X_asr, Y in text_audio_loader:
         print("X:", X.dtype)
         print("Y:", Y)
