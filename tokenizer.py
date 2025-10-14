@@ -7,6 +7,7 @@ import pickle as pkl
 import os
 from typing import List, Dict, Optional, Union
 import torch
+from pyarabic import araby
 from dataclasses import dataclass
 
 
@@ -87,9 +88,10 @@ class ArabicDiacritizationTokenizer:
                 
         return expanded_vocab
     
-    def remove_diacritics(self, text: str) -> str:
+    @staticmethod
+    def remove_diacritics(text: str) -> str:
         """Remove diacritics from text."""
-        return text.translate(str.maketrans('', '', ''.join(self.constants.diacritics_list)))
+        return araby.strip_diacritics(text)
     
     def encode_text(self, text: str) -> List[int]:
         """
@@ -258,33 +260,6 @@ class ArabicDiacritizationTokenizer:
         #     padded_asr = padded_asr[:, :max_length]
         
         return padded, padded_asr, padded_labels
-
-    def encode_asr_batch(self, texts_asr: List[str], max_length: Optional[int] = None) -> torch.Tensor:
-        """
-        Encode a batch of ASR texts to tensor.
-        
-        Args:
-            texts_asr: List of ASR text strings
-            max_length: Maximum sequence length for padding
-            
-        Returns:
-            Padded tensor of shape (batch_size, max_seq_len)
-        """
-        encoded_texts = [self.encode_asr_text(text) for text in texts_asr]
-        
-        # Convert to tensors
-        tensors = [torch.tensor(encoded, dtype=torch.long) for encoded in encoded_texts]
-        
-        # Pad sequences
-        pad_value = self.constants.expanded_vocabulary.get('<PAD>', 0)
-        padded = torch.nn.utils.rnn.pad_sequence(
-            tensors, batch_first=True, padding_value=pad_value)
-        
-        # Truncate if max_length specified
-        if max_length and padded.size(1) > max_length:
-            padded = padded[:, :max_length]
-            
-        return padded
     
     def decode(self, predictions: List[int], original_text: str) -> str:
         """
@@ -378,6 +353,7 @@ class ArabicDiacritizationTokenizer:
             'sos': self.constants.characters_mapping.get('<SOS>', 1),
             'eos': self.constants.characters_mapping.get('<EOS>', 2),
         }
+
 
 if __name__ == "__main__":
 

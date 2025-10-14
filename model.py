@@ -7,7 +7,7 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import csv
 from tqdm import tqdm
-
+from pyarabic import araby
 from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq
 
 
@@ -528,8 +528,12 @@ class DiacritizationModule(L.LightningModule):
         encoded_asr = encoded_asr.to(self.device) if self.config.INFERENCE.USE_ASR else None
 
         with torch.no_grad():
-            outputs = self.model(encoded_text, inputs_asr=encoded_asr)
-            predictions = outputs.argmax(dim=-1).cpu().tolist()
+            try:
+                outputs = self.model(encoded_text, inputs_asr=encoded_asr)
+                predictions = outputs.argmax(dim=-1).cpu().tolist()
+            except Exception as e:
+                print(f"Error during prediction: {e}")
+                return [""] * len(text)
 
         decoded_texts = self.tokenizer.decode_batch(predictions, text)
 
@@ -544,11 +548,10 @@ class DiacritizationModule(L.LightningModule):
         _len = len(text)
         r = len(text_asr)/ _len if text_asr else 1
 
-        
+        # Sliding window
         if len(text) <= self.config.INFERENCE.MAX_LENGTH:
             output = self.predict_text(text, asr_text=text_asr)
         else:
-            # Sliding window
             window_size = self.config.INFERENCE.WINDOW_SIZE
             buffer_size = getattr(self.config.INFERENCE, 'BUFFER_SIZE', 25)
             start_idx = 0
@@ -580,7 +583,7 @@ class DiacritizationModule(L.LightningModule):
         return output
     
     def remove_diacritics(self, text:str) -> str:
-        return text.translate(str.maketrans('', '', ''.join(self.tokenizer.constants.diacritics_list)))
+        return araby.strip_diacritics(text)
 
     @staticmethod
     def is_audio(path: str) -> bool:
