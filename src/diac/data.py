@@ -1,10 +1,10 @@
 import torch
 import re
 from torch.utils.data import Dataset, DataLoader
-from constants import constants
+from diac.constants import constants
 from typing import List, Tuple, Optional
 import csv
-from tokenizer import ArabicDiacritizationTokenizer
+from diac.tokenizer import ArabicDiacritizationTokenizer
 from pyarabic.araby import strip_diacritics as remove_diacritics
 
 # def remove_diacritics(data_raw: str) -> str:
@@ -181,7 +181,7 @@ def collate_fn(batch: List[Tuple]) -> Tuple[torch.Tensor, ...]:
 
 if __name__ == "__main__":
 
-    from utils import load_constants
+    from diac.utils.utils import load_constants
     load_constants('constants')
     data_path = "data/clartts/test.txt,data/NADI-2025/nadi-all/dev.tsv"
     tokenizer = ArabicDiacritizationTokenizer(constants_path='constants')

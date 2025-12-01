@@ -87,6 +87,7 @@ outputs/
 checkpoints*/
 results*/
 eval/
+asr/
 
 # Misc
 .DS_Store

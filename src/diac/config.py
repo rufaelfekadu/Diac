@@ -33,6 +33,7 @@ _C.TRAIN.SAVE_DIR = 'checkpoints/'
 _C.TRAIN.EARLY_STOPPING_PATIENCE = 10  # Early stopping patience
 _C.TRAIN.ACCUMULATE_GRAD_BATCHES = 1   # Gradient accumulation
 _C.TRAIN.VAL_CHECK_INTERVAL = 1.0      # Validation check interval
+_C.TRAIN.GRAD_CLIP_NORM = None         # Gradient clipping norm, None means no clipping
 
 # Inference configuration
 _C.INFERENCE = CN()

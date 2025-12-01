@@ -25,14 +25,15 @@ MAX_JOBS=${MAX_JOBS:-$(nproc 2>/dev/null || echo 2)}
 # Temporary directory to store per-job exit codes
 STATUS_DIR=$(mktemp -d -t diac-train-status.XXXX)
 PIDS=()
-declare -A JOB_DESC
-declare -A JOB_RC
+declare -A JOB_DESC=()
+declare -A JOB_RC=()
+# declare -A PIDS=()
 
 # Cleanup handler to kill background jobs and remove status dir
 cleanup() {
     log "Cleaning up background jobs and temporary files"
     # kill any remaining background jobs
-    if [ ${#PIDS[@]:-0} -gt 0 ]; then
+    if [ ${#PIDS[@]} -gt 0 ]; then
         log "Killing ${#PIDS[@]} background job(s)"
         for p in "${PIDS[@]}"; do
             if kill -0 "$p" 2>/dev/null; then
@@ -49,7 +50,6 @@ trap cleanup EXIT
 run_job() {
     local desc=$1
     shift
-    log "Queueing job: ${desc}"
 
     # The last argument is expected to be the save_dir for logging
     local save_dir
@@ -75,6 +75,15 @@ run_job() {
     esac
 
     local logfile="${save_dir}/logs/${job_type}-$(date +%s)-${RANDOM}.log"
+
+
+    #  check for the training.done file to avoid overwriting existing jobs
+    if [ "${job_type}" = "train" ] && [ -f "${save_dir}/training.done" ]; then
+        # log "Skipping job '${desc}' as training.done already exists in ${save_dir}"
+        return 0
+    fi
+    
+    log "Queueing job: ${desc}"
 
     # Run the provided command in a background subshell that writes its exit code to a status file
     (
@@ -131,7 +140,7 @@ reap_one_job() {
 
 # Wait for all outstanding jobs to complete
 wait_for_all_jobs() {
-    while [ ${#PIDS[@]:-0} -gt 0 ]; do
+    while [ ${#PIDS[@]} -gt 0 ]; do
         if ! reap_one_job; then
             # no job ready yet, wait briefly
             sleep 1

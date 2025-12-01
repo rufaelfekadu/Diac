@@ -1,13 +1,13 @@
-from utils import *
-from model import DiacritizationModule
-from tokenizer import ArabicDiacritizationTokenizer
-
+from diac.utils.utils import (load_cfg, load_constants)
+from diac.models import DiacritizationModule
+from diac.tokenizer import ArabicDiacritizationTokenizer
+import os
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
 def main(config):
 
     config = load_cfg(args)
-
+    
     os.makedirs(os.path.dirname(config.INFERENCE.OUTPUT_PATH), exist_ok=True)
 
     constants = load_constants(config.CONSTANTS_PATH)
@@ -18,7 +18,6 @@ def main(config):
         checkpoint_path=config.INFERENCE.MODEL_PATH,
         tokenizer=tokenizer,
     )
-
     model.predict_file(
         input_file=config.DATA.TEST_PATH,
         output_file=config.INFERENCE.OUTPUT_PATH

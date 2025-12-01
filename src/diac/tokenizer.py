@@ -11,15 +11,10 @@ from pyarabic import araby
 from dataclasses import dataclass
 import tempfile
 import json
+import yaml
 
-# Optional HF helpers
-try:
-    from huggingface_hub import snapshot_download, hf_hub_download, create_repo, Repository
-except Exception:
-    snapshot_download = None
-    hf_hub_download = None
-    create_repo = None
-    Repository = None
+from diac.utils.text import normalize_text, remove_diacritics
+
 
 
 @dataclass
@@ -49,10 +44,21 @@ class ArabicDiacritizationTokenizer:
         """
         self.constants_path = constants_path
         self.with_extra_train = with_extra_train
-        self.constants = self._load_constants()
-        
-    def _load_constants(self) -> TokenizerConstants:
+        if isinstance(constants_path, str) and constants_path.endswith('.json'):
+            self.constants = self._load_constants_json()
+        else:
+            self.constants = self._load_constants_pkl()
+    
+    def _load_constants_json(self) -> TokenizerConstants:
+        """Loads constants from constants.JSON file."""
+        with open(os.path.join(self.constants_path), 'r', encoding='utf-8') as fh:
+            data = json.load(fh)
+        return TokenizerConstants(**data)
+
+    def _load_constants_pkl(self) -> TokenizerConstants:
         """Load constants from pickle files."""
+        if not os.path.isdir(self.constants_path):
+            raise ValueError(f"Constants path {self.constants_path} is not a directory.")
         # Load character mappings
         if self.with_extra_train:
             chars_file = 'RNN_BIG_CHARACTERS_MAPPING.pickle'
@@ -99,10 +105,12 @@ class ArabicDiacritizationTokenizer:
                 
         return expanded_vocab
     
-    @staticmethod
-    def remove_diacritics(text: str) -> str:
-        """Remove diacritics from text."""
-        return araby.strip_diacritics(text)
+    def preprocess_text(self, text: str, _remove_diacritics: bool = True) -> str:
+        """Preprocess text by normalizing and removing diacritics."""
+        text = normalize_text(text)
+        if _remove_diacritics:
+            text = remove_diacritics(text)
+        return text
     
     def encode_text(self, text: str) -> List[int]:
         """
@@ -114,8 +122,7 @@ class ArabicDiacritizationTokenizer:
         Returns:
             List of character indices
         """
-        # Remove diacritics for encoding
-        text_clean = self.remove_diacritics(text)
+        text_clean = self.preprocess_text(text, _remove_diacritics=True)
         
         # Encode with SOS and EOS tokens
         encoded = [self.constants.characters_mapping['<SOS>']]
@@ -139,6 +146,8 @@ class ArabicDiacritizationTokenizer:
         Returns:
             List of indices using expanded vocabulary
         """
+        text_asr = self.preprocess_text(text_asr, _remove_diacritics=False)
+
         encoded = [self.constants.expanded_vocabulary['<SOS>']]
         
         for char in text_asr:
@@ -365,147 +374,9 @@ class ArabicDiacritizationTokenizer:
             'eos': self.constants.characters_mapping.get('<EOS>', 2),
         }
 
-    @classmethod
-    def from_pretrained(cls, repo_or_dir: str, with_extra_train: bool = False, hf_token: Optional[str] = None,
-                        constants_path: Optional[str] = None):
-        """Load tokenizer constants from a local directory or Hugging Face Hub and return a tokenizer.
-
-        Args:
-            repo_or_dir: local path or HF repo id (e.g. 'username/repo').
-            with_extra_train: whether to load big character mapping.
-            hf_token: optional HF token for private repos.
-            constants_path: explicit local path to constants folder (overrides repo_or_dir).
-
-        Returns:
-            ArabicDiacritizationTokenizer instance.
-        """
-        # If explicit local constants_path provided, prefer it
-        if constants_path and os.path.isdir(constants_path):
-            return cls(constants_path, with_extra_train=with_extra_train)
-
-        # Check for local repo constants folder
-        local_constants = os.path.join(repo_or_dir, 'constants')
-        if os.path.isdir(local_constants):
-            return cls(local_constants, with_extra_train=with_extra_train)
-
-        # Try to download from HF hub
-        if snapshot_download is None and hf_hub_download is None:
-            raise RuntimeError('huggingface_hub is required to load tokenizer from a hub repo.\n'
-                               'Install it with `pip install huggingface_hub` or provide a local constants_path.')
-
-        tmpdir = tempfile.mkdtemp()
-        try:
-            # Prefer snapshot_download to fetch the whole folder
-            if snapshot_download is not None:
-                snap = snapshot_download(repo_or_dir, allow_patterns=['constants/*'], use_auth_token=hf_token)
-                # snapshot_download returns path to repo snapshot - look for constants inside
-                candidate = os.path.join(snap, 'constants')
-                if os.path.isdir(candidate):
-                    return cls(candidate, with_extra_train=with_extra_train)
-
-            # Fallback: download individual files
-            files = [
-                'ARABIC_LETTERS_LIST.pickle',
-                'DIACRITICS_LIST.pickle',
-                'RNN_CLASSES_MAPPING.pickle',
-                'RNN_REV_CLASSES_MAPPING.pickle'
-            ]
-            # include both mapping variants
-            big_map = 'RNN_BIG_CHARACTERS_MAPPING.pickle'
-            small_map = 'RNN_SMALL_CHARACTERS_MAPPING.pickle'
-            # attempt big first if requested
-            if with_extra_train:
-                preferred_chars = big_map
-            else:
-                preferred_chars = small_map
-
-            # try downloading preferred chars, otherwise try the other
-            char_candidates = [preferred_chars, big_map if preferred_chars == small_map else small_map]
-
-            # download character map
-            char_map_path = None
-            for cname in char_candidates:
-                try:
-                    p = hf_hub_download(repo_id=repo_or_dir, filename=os.path.join('constants', cname), use_auth_token=hf_token)
-                    char_map_path = p
-                    break
-                except Exception:
-                    char_map_path = None
-
-            # download other files into tmpdir/constants
-            out_constants = os.path.join(tmpdir, 'constants')
-            os.makedirs(out_constants, exist_ok=True)
-            if char_map_path:
-                # copy the char map to out_constants
-                import shutil
-                shutil.copy(char_map_path, os.path.join(out_constants, os.path.basename(char_map_path)))
-
-            for fname in files:
-                try:
-                    p = hf_hub_download(repo_id=repo_or_dir, filename=os.path.join('constants', fname), use_auth_token=hf_token)
-                    shutil.copy(p, os.path.join(out_constants, os.path.basename(p)))
-                except Exception:
-                    # ignore missing files
-                    pass
-
-            # also try to ensure one of the char maps present
-            if not any(n in os.listdir(out_constants) for n in [big_map, small_map]):
-                raise FileNotFoundError('Could not download tokenizer constants from the hub repo.')
-
-            return cls(out_constants, with_extra_train=with_extra_train)
-        finally:
-            # don't remove tmpdir immediately; letting GC/OS clean; user may want to inspect
-            pass
-
-    def push_to_hub(self, repo_id: str, hf_token: Optional[str] = None, exist_ok: bool = True):
-        """Push tokenizer constants (pickle files) to a Hugging Face Hub repo.
-
-        This writes the tokenizer's pickled constants into a `constants/` folder and
-        pushes the folder to the specified repo. The repo will be created if it
-        doesn't exist and `huggingface_hub` is available.
-
-        Returns the temporary directory used for the repo clone.
-        """
-        if create_repo is None or Repository is None:
-            raise RuntimeError('huggingface_hub is required to push tokenizer to hub; install it with `pip install huggingface_hub`')
-
-        tmpdir = tempfile.mkdtemp()
-        try:
-            create_repo(repo_id=repo_id, exist_ok=exist_ok, token=hf_token)
-        except Exception:
-            pass
-
-        repo = Repository(tmpdir, clone_from=repo_id, use_auth_token=hf_token)
-
-        constants_dir = os.path.join(tmpdir, 'constants')
-        os.makedirs(constants_dir, exist_ok=True)
-
-        # Determine which char mapping filename to use
-        char_map_name = 'RNN_BIG_CHARACTERS_MAPPING.pickle' if self.with_extra_train else 'RNN_SMALL_CHARACTERS_MAPPING.pickle'
-
-        # prepare dict of files to write
-        files = {
-            char_map_name: self.constants.characters_mapping,
-            'ARABIC_LETTERS_LIST.pickle': self.constants.arabic_letters_list,
-            'DIACRITICS_LIST.pickle': self.constants.diacritics_list,
-            'RNN_CLASSES_MAPPING.pickle': self.constants.classes_mapping,
-            'RNN_REV_CLASSES_MAPPING.pickle': self.constants.rev_classes_mapping
-        }
-
-        for fname, obj in files.items():
-            with open(os.path.join(constants_dir, fname), 'wb') as fh:
-                pkl.dump(obj, fh)
-
-        # commit and push
-        repo.git_add(pattern='*')
-        repo.git_commit('Upload tokenizer constants')
-        repo.push_to_hub()
-        return tmpdir
-
-
 if __name__ == "__main__":
 
-    tokenizer = ArabicDiacritizationTokenizer('constants/')
+    tokenizer = ArabicDiacritizationTokenizer('../../constants/')
     sample_asr_text = "َذَاالتَّسْجِيل مِنْ طَرَفِ لربّري بُوكْس جَمِيع تَسَّجِيلَات لربّري بُوكْس"
     sample_txt = "هَذَاالتَّسْجِيل مِنْ طَرَفِ لربّري بُوكْس جَمِيع تَسَّجِيلَات لربّري بُوكْس"
     
@@ -515,3 +386,16 @@ if __name__ == "__main__":
     print("Encoded text:", encoded[0].shape)
     print("Encoded ASR text:", encoded_asr[0].shape)
     print("Labels:", labels[0].shape)
+
+    # save the dictionaries to a vocab.json file
+    vocab = {
+        'characters_mapping': tokenizer.constants.characters_mapping,
+        'arabic_letters_list': tokenizer.constants.arabic_letters_list,
+        'diacritics_list': tokenizer.constants.diacritics_list,
+        'classes_mapping': tokenizer.constants.classes_mapping,
+        'rev_classes_mapping': tokenizer.constants.rev_classes_mapping,
+        'expanded_vocabulary': tokenizer.constants.expanded_vocabulary
+    }
+
+    with open('constants.json', 'w', encoding='utf-8') as fh:
+        json.dump(vocab, fh, ensure_ascii=False, indent=4)

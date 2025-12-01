@@ -13,3 +13,5 @@ yacs>=0.1.8
 pyyaml>=6.0
 tqdm>=4.65.0
 lightning>=2.0.0
+pyarabic>=0.6.15
+huggingface-hub>=0.18.0
