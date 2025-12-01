@@ -8,7 +8,6 @@ from diac.tokenizer import ArabicDiacritizationTokenizer
 from diac.utils.text import remove_diacritics, normalize_text
 
 
-
 def split_data_tashkeela(
     data_raw: List[str],
     max_length: int = 270,
@@ -66,8 +65,8 @@ def split_data_tashkeela(
 
             # otherwise, word-wise packing
             tokens = tokenize(base)
-            cur = []                 # list of original tokens
-            cur_len = 0              # undiacritized length of current line
+            cur = []  # list of original tokens
+            cur_len = 0  # undiacritized length of current line
             for tok in tokens:
                 tok_len = len(remove_diacritics(tok))
                 sep = 1 if cur else 0  # space if we already have content
@@ -84,7 +83,9 @@ def split_data_tashkeela(
                 # flush current line if it has content
                 if cur:
                     joined = "".join(cur)
-                    out.append(remove_diacritics(joined) if return_undiacritized else joined)
+                    out.append(
+                        remove_diacritics(joined) if return_undiacritized else joined
+                    )
                     cur, cur_len = [], 0
 
                 # token itself is too long -> split by characters
@@ -93,7 +94,9 @@ def split_data_tashkeela(
                     for i, piece in enumerate(pieces):
                         piece_len = len(remove_diacritics(piece))
                         # each piece is guaranteed <= max_length; flush immediately
-                        out.append(remove_diacritics(piece) if return_undiacritized else piece)
+                        out.append(
+                            remove_diacritics(piece) if return_undiacritized else piece
+                        )
                     # after splitting a long token, we start fresh
                     cur, cur_len = [], 0
                 else:
@@ -104,27 +107,33 @@ def split_data_tashkeela(
             # flush remainder
             if cur:
                 joined = "".join(cur)
-                out.append(remove_diacritics(joined) if return_undiacritized else joined)
+                out.append(
+                    remove_diacritics(joined) if return_undiacritized else joined
+                )
 
     return out
+
 
 class TextAudioDataset(Dataset):
     """
     Dataset class for text + audio (ASR) data.
     """
-    def __init__(self, data_path: str, tokenizer: ArabicDiacritizationTokenizer, max_length=None):
+
+    def __init__(
+        self, data_path: str, tokenizer: ArabicDiacritizationTokenizer, max_length=None
+    ):
 
         self.tokenizer = tokenizer
         lines = []
         asr_lines = []
         data_paths = data_path.split(",")  # allow multiple files separated by commas
         for data_path in data_paths:
-            with open(data_path, 'r', encoding='utf-8') as f:
-                reader = csv.reader(f, delimiter='\t') 
+            with open(data_path, "r", encoding="utf-8") as f:
+                reader = csv.reader(f, delimiter="\t")
                 for row in reader:
                     if len(row) >= 2:
-                        lines.append(normalize_text(row[0]))      
-                        asr_lines.append(normalize_text(row[1])) 
+                        lines.append(normalize_text(row[0]))
+                        asr_lines.append(normalize_text(row[1]))
                     elif len(row) == 1:
                         if max_length:
                             lines.extend(split_data_tashkeela([row[0]], max_length))
@@ -132,43 +141,68 @@ class TextAudioDataset(Dataset):
                             lines.append(normalize_text(row[0]))
                     else:
                         continue  # Skip empty lines
-                        
-        self.lines, self.asr_lines, self.labels = self.tokenizer.encode_batch(lines, asr_lines, padding=False)
-    
+
+        self.lines, self.asr_lines, self.labels = self.tokenizer.encode_batch(
+            lines, asr_lines, padding=False
+        )
+
         assert len(self.lines) == len(self.labels), "Mismatch in data lengths"
 
     def __len__(self) -> int:
         return len(self.lines)
 
     def __getitem__(self, idx: int) -> Tuple[List[int], List[int], List[int]]:
-        output = {
-            "text": self.lines[idx],
-            "label": self.labels[idx]
-        }
+        output = {"text": self.lines[idx], "label": self.labels[idx]}
         if len(self.asr_lines) > 0:
             output["asr"] = self.asr_lines[idx]
         return output
 
-def create_dataloader(dataset: Dataset, batch_size: int, shuffle: bool = True) -> DataLoader:
-    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn)
+
+def create_dataloader(
+    dataset: Dataset, batch_size: int, shuffle: bool = True
+) -> DataLoader:
+    return DataLoader(
+        dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn
+    )
+
 
 def collate_fn(batch: List[Tuple]) -> Tuple[torch.Tensor, ...]:
     """
     Custom collate function for variable length sequences.
     """
     if len(batch[0]) == 2:  # Text-only
-        X_batch = [item['text'] for item in batch]
-        Y_batch = [item['label'] for item in batch]
-        X_batch = torch.nn.utils.rnn.pad_sequence(X_batch, batch_first=True, padding_value=constants.characters_mapping.get('<PAD>', 0))
-        Y_batch = torch.nn.utils.rnn.pad_sequence(Y_batch, batch_first=True, padding_value=constants.classes_mapping.get('<PAD>', 0))
+        X_batch = [item["text"] for item in batch]
+        Y_batch = [item["label"] for item in batch]
+        X_batch = torch.nn.utils.rnn.pad_sequence(
+            X_batch,
+            batch_first=True,
+            padding_value=constants.characters_mapping.get("<PAD>", 0),
+        )
+        Y_batch = torch.nn.utils.rnn.pad_sequence(
+            Y_batch,
+            batch_first=True,
+            padding_value=constants.classes_mapping.get("<PAD>", 0),
+        )
         return X_batch, None, Y_batch
     elif len(batch[0]) == 3:  # Text + Audio
-        X_batch = [item['text'] for item in batch]
-        X_asr_batch = [item['asr'] for item in batch]
-        Y_batch = [item['label'] for item in batch]
-        X_batch = torch.nn.utils.rnn.pad_sequence(X_batch, batch_first=True, padding_value=constants.characters_mapping.get('<PAD>', 0))
-        X_asr_batch = torch.nn.utils.rnn.pad_sequence(X_asr_batch, batch_first=True, padding_value=constants.characters_mapping.get('<PAD>', 0))
-        Y_batch = torch.nn.utils.rnn.pad_sequence(Y_batch, batch_first=True, padding_value=constants.classes_mapping.get('<PAD>', 0))
+        X_batch = [item["text"] for item in batch]
+        X_asr_batch = [item["asr"] for item in batch]
+        Y_batch = [item["label"] for item in batch]
+        X_batch = torch.nn.utils.rnn.pad_sequence(
+            X_batch,
+            batch_first=True,
+            padding_value=constants.characters_mapping.get("<PAD>", 0),
+        )
+        X_asr_batch = torch.nn.utils.rnn.pad_sequence(
+            X_asr_batch,
+            batch_first=True,
+            padding_value=constants.characters_mapping.get("<PAD>", 0),
+        )
+        Y_batch = torch.nn.utils.rnn.pad_sequence(
+            Y_batch,
+            batch_first=True,
+            padding_value=constants.classes_mapping.get("<PAD>", 0),
+        )
         return X_batch, X_asr_batch, Y_batch
     else:
         raise ValueError("Unexpected batch structure")
@@ -177,9 +211,10 @@ def collate_fn(batch: List[Tuple]) -> Tuple[torch.Tensor, ...]:
 if __name__ == "__main__":
 
     from diac.utils.utils import load_constants
-    load_constants('constants')
+
+    load_constants("constants")
     data_path = "data/clartts/test.txt,data/NADI-2025/nadi-all/dev.tsv"
-    tokenizer = ArabicDiacritizationTokenizer(constants_path='constants')
+    tokenizer = ArabicDiacritizationTokenizer(constants_path="constants")
 
     # text_dataset = TextDataset(data_path)
     text_audio_dataset = TextAudioDataset(data_path, tokenizer, max_length=100)

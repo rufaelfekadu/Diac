@@ -83,7 +83,12 @@ def find_checkpoints(roots: List[str]) -> List[Path]:
 def sanitize_repo_name(rel_path: str, max_len: int = 80) -> str:
     # convert path to safe repo name: replace separators and spaces
     # replace path separators, spaces and plus signs which can be problematic
-    name = rel_path.replace(os.sep, "-").replace("/", "-").replace(" ", "-").replace("+", "-")
+    name = (
+        rel_path.replace(os.sep, "-")
+        .replace("/", "-")
+        .replace(" ", "-")
+        .replace("+", "-")
+    )
     # remove characters that are problematic for HF repo names
     # don't allow '+' in final repo name (some tools and URLs treat it specially)
     safe = "".join(c for c in name if c.isalnum() or c in "-_.")
@@ -92,11 +97,13 @@ def sanitize_repo_name(rel_path: str, max_len: int = 80) -> str:
         safe = safe.replace("--", "-")
     return safe[:max_len].strip("-_.+") or "model"
 
+
 def get_model_dataset(ckpt_path: Path) -> str:
     # get the model dataset from the checkpoint path
     dataset = ckpt_path.parent.parent.parent.parent.name
     model = ckpt_path.parent.parent.parent.parent.parent.name
     return f"diac-{model}-{dataset}"
+
 
 def find_constants_dir(start: Path) -> Optional[Path]:
     # walk upwards from start to find a 'constants' folder
@@ -110,10 +117,17 @@ def find_constants_dir(start: Path) -> Optional[Path]:
         cur = cur.parent
     return None
 
+
 def find_config_files(start: Path) -> List[Path]:
     # look for common config files in ancestor or same dirs
     paths = []
-    cand_names = ["config.json", "hparams.yaml", "hparams.yml", "config.yml", "config.yaml"]
+    cand_names = [
+        "config.json",
+        "hparams.yaml",
+        "hparams.yml",
+        "config.yml",
+        "config.yaml",
+    ]
     cur = start
     for _ in range(6):
         for name in cand_names:
@@ -165,21 +179,32 @@ def push_single_checkpoint(
 
     if dry_run:
         print("Planned push:")
-        print(textwrap.indent(textwrap.dedent(f"""
+        print(
+            textwrap.indent(
+                textwrap.dedent(
+                    f"""
             repo: {planned['repo_id']}
             checkpoint: {planned['checkpoint']}
             configs: {planned['configs']}
             constants: {planned['constants_dir']}
-        """), "  "))
+        """
+                ),
+                "  ",
+            )
+        )
         return None
 
     if create_repo is None or Repository is None:
-        raise RuntimeError("huggingface_hub is required to push models. Install it with `pip install huggingface_hub`.")
+        raise RuntimeError(
+            "huggingface_hub is required to push models. Install it with `pip install huggingface_hub`."
+        )
 
     # create repo (id may include namespace)
     if hf_token is None:
-        print("Warning: No Hugging Face token provided (use --token or set HF_TOKEN).\n"
-              "Creating repositories or pushing to private repos will likely fail without a token.")
+        print(
+            "Warning: No Hugging Face token provided (use --token or set HF_TOKEN).\n"
+            "Creating repositories or pushing to private repos will likely fail without a token."
+        )
 
     try:
         # prefer create_repo helper when available
@@ -228,7 +253,10 @@ def push_single_checkpoint(
     # show git status before committing to help debug failures
     try:
         import subprocess
-        status = subprocess.run(["git", "status", "--porcelain"], cwd=tmpdir, capture_output=True, text=True)
+
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=tmpdir, capture_output=True, text=True
+        )
         print("\nGit status (before add/commit):")
         print(status.stdout.strip() or "(clean)")
     except Exception as e:
@@ -278,7 +306,9 @@ def push_single_checkpoint(
     # If using HTTP upload method, upload folder contents via the Hub API and return
     if upload_method == "http":
         if HfApi is None:
-            raise RuntimeError("huggingface_hub.HfApi is required for HTTP uploads. Install huggingface_hub>=0.14.0")
+            raise RuntimeError(
+                "huggingface_hub.HfApi is required for HTTP uploads. Install huggingface_hub>=0.14.0"
+            )
 
         api = HfApi()
         print(f"Uploading folder {tmpdir} to {repo_id} via HTTP API...")
@@ -321,7 +351,13 @@ def push_single_checkpoint(
         # show git status after add
         try:
             import subprocess
-            status2 = subprocess.run(["git", "status", "--porcelain"], cwd=tmpdir, capture_output=True, text=True)
+
+            status2 = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=tmpdir,
+                capture_output=True,
+                text=True,
+            )
             print("\nGit status (after add):")
             print(status2.stdout.strip() or "(clean)")
         except Exception:
@@ -338,7 +374,13 @@ def push_single_checkpoint(
         # surface git logs to help debug
         try:
             import subprocess
-            out = subprocess.run(["git", "log", "-n", "5", "--oneline"], cwd=tmpdir, capture_output=True, text=True)
+
+            out = subprocess.run(
+                ["git", "log", "-n", "5", "--oneline"],
+                cwd=tmpdir,
+                capture_output=True,
+                text=True,
+            )
             print("Recent git log in tmpdir:")
             print(out.stdout.strip() or "(no commits)")
         except Exception:
@@ -350,15 +392,50 @@ def push_single_checkpoint(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Push trained models and tokenizer constants to the Hugging Face Hub.")
-    parser.add_argument("--roots", nargs="+", default=["outputs/results", "results-final", "results"], help="Root folders to search for checkpoints")
-    parser.add_argument("--namespace", required=False, help="HF username/namespace to push repos under (e.g. myuser). If omitted, pass full repo ids via --full-repo-ids or set --dry-run to inspect.")
-    parser.add_argument("--full-repo-ids", nargs="*", help="Optional list of full repo ids to map to discovered checkpoints in order. If provided, length must match discovered checkpoints.")
-    parser.add_argument("--token", required=False, help="Hugging Face token. Falls back to HF_TOKEN env var.")
-    parser.add_argument("--include-constants", action="store_true", help="Include nearby 'constants/' folder when found")
-    parser.add_argument("--dry-run", action="store_true", help="Don't push; just print planned actions")
-    parser.add_argument("--upload-method", choices=["git", "http"], default="git", help="Upload method: 'git' (default) uses git repo clone and push; 'http' uses the HF HTTP API to upload files directly")
-    parser.add_argument("--limit", type=int, default=0, help="Limit number of checkpoints to process (0 = all)")
+    parser = argparse.ArgumentParser(
+        description="Push trained models and tokenizer constants to the Hugging Face Hub."
+    )
+    parser.add_argument(
+        "--roots",
+        nargs="+",
+        default=["outputs/results", "results-final", "results"],
+        help="Root folders to search for checkpoints",
+    )
+    parser.add_argument(
+        "--namespace",
+        required=False,
+        help="HF username/namespace to push repos under (e.g. myuser). If omitted, pass full repo ids via --full-repo-ids or set --dry-run to inspect.",
+    )
+    parser.add_argument(
+        "--full-repo-ids",
+        nargs="*",
+        help="Optional list of full repo ids to map to discovered checkpoints in order. If provided, length must match discovered checkpoints.",
+    )
+    parser.add_argument(
+        "--token",
+        required=False,
+        help="Hugging Face token. Falls back to HF_TOKEN env var.",
+    )
+    parser.add_argument(
+        "--include-constants",
+        action="store_true",
+        help="Include nearby 'constants/' folder when found",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Don't push; just print planned actions"
+    )
+    parser.add_argument(
+        "--upload-method",
+        choices=["git", "http"],
+        default="git",
+        help="Upload method: 'git' (default) uses git repo clone and push; 'http' uses the HF HTTP API to upload files directly",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Limit number of checkpoints to process (0 = all)",
+    )
     args = parser.parse_args()
 
     hf_token = args.token or os.environ.get("HF_TOKEN")
@@ -394,7 +471,11 @@ def main():
                         break
                 except Exception:
                     continue
-            rel_base = os.path.relpath(ck.parent, chosen_root) if chosen_root else str(ck.parent)
+            rel_base = (
+                os.path.relpath(ck.parent, chosen_root)
+                if chosen_root
+                else str(ck.parent)
+            )
             model_dataset = get_model_dataset(ck)
             repo_name = sanitize_repo_name(model_dataset)
             repo_id = f"{args.namespace}/{repo_name}"
@@ -408,9 +489,9 @@ def main():
                 checkpoint=ck,
                 repo_id=repo_id,
                 hf_token=hf_token,
-            include_constants=args.include_constants,
-            dry_run=args.dry_run,
-            upload_method=args.upload_method,
+                include_constants=args.include_constants,
+                dry_run=args.dry_run,
+                upload_method=args.upload_method,
             )
         except Exception as e:
             print(f"Failed to push {ck}: {e}")

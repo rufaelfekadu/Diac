@@ -5,7 +5,7 @@ _C = CN()
 
 # Model configuration
 _C.MODEL = CN()
-_C.MODEL.TYPE = 'Transformer'  # or 'LSTM'
+_C.MODEL.TYPE = "Transformer"  # or 'LSTM'
 _C.MODEL.MAXLEN = 1000
 _C.MODEL.VOCAB_SIZE = 1000
 _C.MODEL.ASR_VOCAB_SIZE = 1000
@@ -22,47 +22,48 @@ _C.MODEL.WITH_CONN = False
 
 # Training configuration
 _C.TRAIN = CN()
-_C.TRAIN.DEVICE = 'cuda'  # or 'cpu'
+_C.TRAIN.DEVICE = "cuda"  # or 'cpu'
 _C.TRAIN.BATCH_SIZE = 32
 _C.TRAIN.NUM_EPOCHS = 100
 _C.TRAIN.LEARNING_RATE = 0.0001
 _C.TRAIN.SAVE_FREQ = 30
 _C.TRAIN.EVAL_FREQ = 1
-_C.TRAIN.SAVE_DIR = 'checkpoints/'
+_C.TRAIN.SAVE_DIR = "checkpoints/"
 # Lightning-specific settings
 _C.TRAIN.EARLY_STOPPING_PATIENCE = 10  # Early stopping patience
-_C.TRAIN.ACCUMULATE_GRAD_BATCHES = 1   # Gradient accumulation
-_C.TRAIN.VAL_CHECK_INTERVAL = 1.0      # Validation check interval
-_C.TRAIN.GRAD_CLIP_NORM = None         # Gradient clipping norm, None means no clipping
+_C.TRAIN.ACCUMULATE_GRAD_BATCHES = 1  # Gradient accumulation
+_C.TRAIN.VAL_CHECK_INTERVAL = 1.0  # Validation check interval
+_C.TRAIN.GRAD_CLIP_NORM = None  # Gradient clipping norm, None means no clipping
 
 # Inference configuration
 _C.INFERENCE = CN()
 _C.INFERENCE.MAX_LENGTH = 100  # Maximum length of undiacritized text for inference
 _C.INFERENCE.WINDOW_SIZE = 50  # Window size for long text inference
 _C.INFERENCE.BUFFER_SIZE = 25  # Buffer size for long text inference
-_C.INFERENCE.DEVICE = 'cuda'
+_C.INFERENCE.DEVICE = "cuda"
 _C.INFERENCE.BATCH_SIZE = 16
-_C.INFERENCE.MODEL_PATH = 'checkpoints/best_model.pth'
-_C.INFERENCE.ASR_MODEL_NAME = 'sashat/whisper-medium-ClassicalAr'
+_C.INFERENCE.MODEL_PATH = "checkpoints/best_model.pth"
+_C.INFERENCE.ASR_MODEL_NAME = "sashat/whisper-medium-ClassicalAr"
 _C.INFERENCE.USE_ASR = True
 _C.INFERENCE.FORCED_IDS = None  # List of tuples for forced decoder ids
-_C.INFERENCE.OUTPUT_PATH = 'results/predictions.txt'
+_C.INFERENCE.OUTPUT_PATH = "results/predictions.txt"
 
 # Data configuration
 _C.DATA = CN()
-_C.DATA.TRAIN_PATH = 'data/clartts/clartts_asr_train.tsv'
+_C.DATA.TRAIN_PATH = "data/clartts/clartts_asr_train.tsv"
 _C.DATA.VAL_PATH = None
-_C.DATA.TEST_PATH = 'data/clartts/clartts_asr_test.tsv'
+_C.DATA.TEST_PATH = "data/clartts/clartts_asr_test.tsv"
 _C.DATA.MAX_LENGTH = None  # Maximum length of undiacritized text, None means no limit
 
 # Constants path
-_C.CONSTANTS_PATH = 'constants/'
+_C.CONSTANTS_PATH = "constants/"
+
 
 def _to_dict(cfg_node):
     """Convert a yacs CfgNode to a regular dictionary."""
     cfg_dict = {}
     for key in cfg_node:
-        if hasattr(cfg_node[key], 'items'):  # if it's a sub-config
+        if hasattr(cfg_node[key], "items"):  # if it's a sub-config
             cfg_dict[key] = _to_dict(cfg_node[key])
         else:
             cfg_dict[key] = cfg_node[key]

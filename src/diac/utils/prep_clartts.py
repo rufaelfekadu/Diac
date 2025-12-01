@@ -13,8 +13,13 @@ OUT_DIR = "./data/clartts_v2"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 processor = AutoProcessor.from_pretrained("sashat/whisper-medium-ClassicalAr")
-model = AutoModelForSpeechSeq2Seq.from_pretrained("sashat/whisper-medium-ClassicalAr").to(device).eval()
+model = (
+    AutoModelForSpeechSeq2Seq.from_pretrained("sashat/whisper-medium-ClassicalAr")
+    .to(device)
+    .eval()
+)
 forced_ids = processor.get_decoder_prompt_ids(language="ar", task="transcribe")
+
 
 def transcribe_from_dataset(dataset, audio_column="audio", limit=None, batch_size=32):
     """
@@ -22,14 +27,16 @@ def transcribe_from_dataset(dataset, audio_column="audio", limit=None, batch_siz
     """
     results = []
     text_inputs = []
-    samples = dataset if limit is None else dataset.select(range(min(limit, len(dataset))))
-    
+    samples = (
+        dataset if limit is None else dataset.select(range(min(limit, len(dataset))))
+    )
+
     # Process in batches
     for i in tqdm(range(0, len(samples), batch_size)):
         batch = samples.select(range(i, min(i + batch_size, len(samples))))
         batch_audio = []
         batch_texts = []
-        
+
         # Prepare batch data
         for item in batch:
             # Extract audio array and sampling rate from dataset
@@ -39,37 +46,42 @@ def transcribe_from_dataset(dataset, audio_column="audio", limit=None, batch_siz
             # resample if needed
             if sr != 16000:
                 import librosa
+
                 audio = librosa.resample(audio, orig_sr=sr, target_sr=16000)
                 sr = 16000
-            
+
             batch_audio.append(audio)
             batch_texts.append(item.get("transcription", ""))
-        
+
         # Process batch through model
-        inputs = processor(batch_audio,
-                          sampling_rate=16000,
-                          return_tensors="pt",
-                          padding=True,
-                          return_attention_mask=True)
-        
+        inputs = processor(
+            batch_audio,
+            sampling_rate=16000,
+            return_tensors="pt",
+            padding=True,
+            return_attention_mask=True,
+        )
+
         inputs = {k: v.to(device) for k, v in inputs.items()}
         with torch.no_grad():
-            gen_ids = model.generate(**inputs,
-                                   forced_decoder_ids=forced_ids,
-                                   pad_token_id=processor.tokenizer.pad_token_id)
-        
+            gen_ids = model.generate(
+                **inputs,
+                forced_decoder_ids=forced_ids,
+                pad_token_id=processor.tokenizer.pad_token_id,
+            )
+
         # Decode batch results
         transcriptions = processor.batch_decode(gen_ids, skip_special_tokens=True)
-        
+
         # Store results
         text_inputs.extend(batch_texts)
         results.extend(transcriptions)
-    
+
     return text_inputs, results
 
 
 def main():
-    splits = ['train']
+    splits = ["train"]
     for split in splits:
         dataset = load_dataset("MBZUAI/ClArTTS", split=split, cache_dir=OUT_DIR)
         print(f"Processing split: {split} with {len(dataset)} samples")
@@ -82,12 +94,13 @@ def main():
             for original, asr in zip(text_inputs, results):
                 f.write(f"{original}\t{asr}\n")
 
-        if split == 'test':
+        if split == "test":
             # also write original text only to a separate file for evaluation
             asr_out_path = os.path.join(OUT_DIR, f"{split}.txt")
             with open(asr_out_path, "w", encoding="utf-8") as f:
                 for original in text_inputs:
                     f.write(f"{original}\n")
+
 
 if __name__ == "__main__":
     main()

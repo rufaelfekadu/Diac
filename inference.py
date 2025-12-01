@@ -1,13 +1,15 @@
-from diac.utils.utils import (load_cfg, load_constants)
+from diac.utils.utils import load_cfg, load_constants
 from diac.models import DiacritizationModule
 from diac.tokenizer import ArabicDiacritizationTokenizer
 import os
+
 os.environ["PYTHONIOENCODING"] = "utf-8"
+
 
 def main(config):
 
     config = load_cfg(args)
-    
+
     os.makedirs(os.path.dirname(config.INFERENCE.OUTPUT_PATH), exist_ok=True)
 
     constants = load_constants(config.CONSTANTS_PATH)
@@ -19,16 +21,24 @@ def main(config):
         tokenizer=tokenizer,
     )
     model.predict_file(
-        input_file=config.DATA.TEST_PATH,
-        output_file=config.INFERENCE.OUTPUT_PATH
+        input_file=config.DATA.TEST_PATH, output_file=config.INFERENCE.OUTPUT_PATH
     )
+
 
 if __name__ == "__main__":
 
     import argparse
+
     parser = argparse.ArgumentParser(description="Diacritization Inference")
-    parser.add_argument('--config', type=str, default='configs/lstm.yml', help="Path to the config file")
-    parser.add_argument('--opts', default=[], nargs=argparse.REMAINDER, help="Modify config options using the command-line")
+    parser.add_argument(
+        "--config", type=str, default="configs/lstm.yml", help="Path to the config file"
+    )
+    parser.add_argument(
+        "--opts",
+        default=[],
+        nargs=argparse.REMAINDER,
+        help="Modify config options using the command-line",
+    )
     args = parser.parse_args()
-    
+
     main(args)
