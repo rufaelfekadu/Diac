@@ -9,11 +9,11 @@ import torch
 import torch.nn as nn
 import yaml
 
-from model import AVAILABLE_MODELS
-from tokenizer import ArabicDiacritizationTokenizer
-from data import TextAudioDataset, create_dataloader
-from utils import load_cfg, dump_cfg, load_constants, expand_vocabulary
-from config import _to_dict
+from diac.models import AVAILABLE_MODELS
+from diac.tokenizer import ArabicDiacritizationTokenizer
+from diac.data import TextAudioDataset, create_dataloader
+from diac.utils.utils import load_cfg, dump_cfg, load_constants, expand_vocabulary
+from diac.config import _to_dict
 
 os.environ["PYTHONIOENCODING"] = "utf-8"
 

@@ -9,9 +9,23 @@ import csv
 from tqdm import tqdm
 from pyarabic import araby
 from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq
+import os
+import json
+import tempfile
+from types import SimpleNamespace
+
+# Optional huggingface-hub helpers. If not installed, hub-related helpers will raise
+# a clear error when used.
+try:
+    from huggingface_hub import hf_hub_download, snapshot_download, create_repo, Repository
+except Exception:
+    hf_hub_download = None
+    snapshot_download = None
+    create_repo = None
+    Repository = None
 
 
-from tokenizer import ArabicDiacritizationTokenizer
+from diac.tokenizer import ArabicDiacritizationTokenizer
 
 class AsrModel:
     def __init__(self, model_name, device='cpu', forced_ids=None):
@@ -89,12 +103,25 @@ class TokenAndPositionEmbedding(nn.Module):
 
     def forward(self, inputs):
         x = self.token_emb(inputs)
+        
         b, t, e = x.size()
+
         if isinstance(self.pos_emb, nn.Embedding):
             x_pos = torch.arange(t, device=inputs.device).unsqueeze(0).expand_as(inputs)
             return x + self.pos_emb(x_pos)
         
-        x = self.pos_emb(x)
+        # implement SinePositionEncoding
+        position = torch.arange(t, device=inputs.device).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, e, 2, device=inputs.device) *
+                             -(math.log(10000.0) / e))
+        
+        pe = torch.zeros(t, e, device=inputs.device)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)  # (1, t, embed_dim) for broadcasting
+
+        x = x + pe
+
         return x
 
 class TransformerBlock(nn.Module):
@@ -259,7 +286,8 @@ class LSTMModel(nn.Module):
             
             if text_branch_only:
                 pretrained_dict = {k: v for k, v in pretrained_dict.items() 
-                                  if k.startswith('text_') or k.startswith('final_dense')}
+                                  if k.startswith('text_')
+                                  }
             
             # Update the current model's state dict
             model_dict.update(pretrained_dict)
@@ -320,6 +348,20 @@ class TransformerModel(nn.Module):
                 self.final_dense = nn.Linear(d_model, output_size)
         else:
             self.final_dense = nn.Linear(d_model, output_size)
+        
+        self._init_params()
+
+    def _init_params(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.Embedding):
+                nn.init.normal_(m.weight, mean=0.0, std=0.02)
+            elif isinstance(m, nn.LayerNorm):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
 
     def forward(self, inputs, inputs_asr=None, **kwargs):
         # Text branch
@@ -372,12 +414,12 @@ class TransformerModel(nn.Module):
             
             if text_branch_only:
                 pretrained_dict = {k: v for k, v in pretrained_dict.items() 
-                                  if k.startswith('text_') or k.startswith('final_dense')}
+                                  if k.startswith('text_')}
             
             # Update the current model's state dict
             model_dict.update(pretrained_dict)
             self.load_state_dict(model_dict)
-            print(f"Loaded pretrained weights from {pretrained_model_path}")
+            print(f"Loaded pretrained weights from {pretrained_model_path} with text_branch_only={text_branch_only}")
         except Exception as e:
             print(f"Error loading pretrained weights: {e}")
         
@@ -391,8 +433,194 @@ class TransformerModel(nn.Module):
 class DiacritizationModule(L.LightningModule):
     """PyTorch Lightning module for diacritization models."""
 
+    @classmethod
+    def from_pretrained(cls, repo_or_dir, config=None, tokenizer=None, tokenizer_constants_path=None,
+                        map_location='cpu', device=None, hf_token=None, strict=False,
+                        text_branch_only=False):
+        """Instantiate DiacritizationModule from a local directory or Hugging Face repo.
+
+        Args:
+            repo_or_dir: local path or HF repo id (e.g. 'username/repo').
+            config: optional config object expected by the module. If not provided,
+                the method will attempt to load 'config.json' from the repo_or_dir
+                and convert it to a SimpleNamespace with nested attributes.
+            tokenizer: optional instance of `ArabicDiacritizationTokenizer`. If not
+                provided, the method will try to locate a `constants/` directory in
+                the repo_or_dir and construct a tokenizer from it. Alternatively,
+                provide `tokenizer_constants_path` pointing to that directory.
+            tokenizer_constants_path: optional local path to tokenizer constants.
+            map_location: device map for torch.load.
+            device: optional torch device to move the model to (e.g. 'cpu' or 'cuda').
+            hf_token: huggingface token if required to access private repos.
+            strict: whether to require exact state dict key match.
+            text_branch_only: if True, only load state dict keys starting with 'text_'.
+
+        Returns:
+            An instance of DiacritizationModule with weights loaded.
+        """
+
+        def _download_file(fname):
+            # local path first
+            local_candidate = os.path.join(repo_or_dir, fname)
+            if os.path.exists(local_candidate):
+                return local_candidate
+            # try HF hub
+            if hf_hub_download is None:
+                return None
+            try:
+                return hf_hub_download(repo_id=repo_or_dir, filename=fname, use_auth_token=hf_token)
+            except Exception:
+                return None
+
+        # find checkpoint
+        candidates = ['pytorch_model.bin', 'model.pt', 'model.pth', 'state_dict.pt', 'checkpoint.pt']
+        ckpt_path = None
+        for c in candidates:
+            p = _download_file(c)
+            if p is not None:
+                ckpt_path = p
+                break
+
+        if ckpt_path is None:
+            raise FileNotFoundError(f"No checkpoint found in '{repo_or_dir}'. Tried: {candidates}")
+
+        # load or build config
+        if config is None:
+            cfg_path = _download_file('config.json')
+            if cfg_path:
+                try:
+                    with open(cfg_path, 'r', encoding='utf-8') as fh:
+                        cfg_dict = json.load(fh)
+
+                    def _dict_to_ns(d):
+                        ns = SimpleNamespace()
+                        for k, v in d.items():
+                            if isinstance(v, dict):
+                                setattr(ns, k, _dict_to_ns(v))
+                            else:
+                                setattr(ns, k, v)
+                        return ns
+
+                    config = _dict_to_ns(cfg_dict)
+                except Exception:
+                    config = None
+
+        # build or load tokenizer
+        if tokenizer is None:
+            # use provided constants path if available
+            if tokenizer_constants_path and os.path.isdir(tokenizer_constants_path):
+                tokenizer = ArabicDiacritizationTokenizer(tokenizer_constants_path)
+            else:
+                # look for a local constants/ dir
+                local_constants = os.path.join(repo_or_dir, 'constants')
+                if os.path.isdir(local_constants):
+                    tokenizer = ArabicDiacritizationTokenizer(local_constants)
+                else:
+                    # try snapshot_download to fetch constants/ from HF repo
+                    if snapshot_download is not None:
+                        try:
+                            snap_dir = snapshot_download(repo_or_dir, allow_patterns=['constants/*'], use_auth_token=hf_token)
+                            # find 'constants' folder inside snap_dir
+                            candidate = os.path.join(snap_dir, 'constants')
+                            if os.path.isdir(candidate):
+                                tokenizer = ArabicDiacritizationTokenizer(candidate)
+                        except Exception:
+                            tokenizer = None
+
+        if tokenizer is None:
+            raise ValueError('Tokenizer instance not provided and constants directory not found in the repo.\n'
+                             'Either pass a tokenizer instance or provide tokenizer_constants_path pointing to the constants folder.')
+
+        if config is None:
+            raise ValueError('Config not provided and config.json not found in the repo.\n'
+                             'Please pass a config object to from_pretrained.')
+
+        # instantiate module
+        module = cls(config=config, tokenizer=tokenizer)
+
+        # load checkpoint
+        checkpoint = torch.load(ckpt_path, map_location=map_location)
+
+        if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+            # Lightning checkpoint: extract model.* entries
+            sd = {k.replace('model.', ''): v for k, v in checkpoint['state_dict'].items() if k.startswith('model.')}
+        else:
+            sd = checkpoint
+
+        if text_branch_only:
+            sd = {k: v for k, v in sd.items() if k.startswith('text_')}
+
+        # load into internal model
+        model_state = module.model.state_dict()
+        # only take keys that exist in the current model
+        filtered = {k: v for k, v in sd.items() if k in model_state}
+        model_state.update(filtered)
+        module.model.load_state_dict(model_state, strict=strict)
+
+        if device is not None:
+            module.to(device)
+
+        return module
+
+    def push_to_hub(self, repo_id, hf_token=None, files_to_include=None, commit_message="upload model checkpoint"):
+        """Save the module's model weights and push to Hugging Face Hub.
+
+        This saves the internal `self.model` state dict as 'pytorch_model.bin' and
+        writes a lightweight 'config.json' (if possible). The tokenizer constants
+        directory is not uploaded automatically — include it via files_to_include
+        or push it separately.
+        """
+        if Repository is None or create_repo is None:
+            raise RuntimeError('huggingface_hub is required for push_to_hub; please pip install huggingface_hub')
+
+        tmpdir = tempfile.mkdtemp()
+
+        # create repo if necessary
+        try:
+            create_repo(repo_id=repo_id, exist_ok=True, token=hf_token)
+        except Exception:
+            pass
+
+        repo = Repository(tmpdir, clone_from=repo_id, use_auth_token=hf_token)
+
+        # save model weights
+        model_path = os.path.join(tmpdir, 'pytorch_model.bin')
+        torch.save(self.model.state_dict(), model_path)
+
+        # try to dump a minimal config.json if the config is simple
+        try:
+            def _ns_to_dict(ns):
+                if isinstance(ns, dict):
+                    return {k: _ns_to_dict(v) for k, v in ns.items()}
+                if isinstance(ns, SimpleNamespace):
+                    return {k: _ns_to_dict(v) for k, v in ns.__dict__.items()}
+                if hasattr(ns, '__dict__'):
+                    return {k: _ns_to_dict(v) for k, v in ns.__dict__.items()}
+                return ns
+
+            cfg_dict = _ns_to_dict(self.config)
+            with open(os.path.join(tmpdir, 'config.json'), 'w', encoding='utf-8') as fh:
+                json.dump(cfg_dict, fh, ensure_ascii=False, indent=2)
+        except Exception:
+            # non-fatal
+            pass
+
+        # include extra files
+        if files_to_include:
+            for fname, content in files_to_include.items():
+                target = os.path.join(tmpdir, fname)
+                mode = 'wb' if isinstance(content, (bytes, bytearray)) else 'w'
+                with open(target, mode, encoding='utf-8' if mode == 'w' else None) as fh:
+                    fh.write(content)
+
+        repo.git_add(pattern='*')
+        repo.git_commit(commit_message)
+        repo.push_to_hub()
+        return tmpdir
+
     def __init__(self, config, tokenizer: ArabicDiacritizationTokenizer):
         super().__init__()
+
         self.save_hyperparameters()
         self.config = config
         self.tokenizer = tokenizer
@@ -546,12 +774,17 @@ class DiacritizationModule(L.LightningModule):
         text = self.remove_diacritics(text).strip()
 
         _len = len(text)
-        r = len(text_asr)/ _len if text_asr else 1
+
+        if _len == 0:
+            return original_text
+
+        r = len(text_asr) / _len if text_asr else 1
 
         # Sliding window
         if len(text) <= self.config.INFERENCE.MAX_LENGTH:
             output = self.predict_text(text, asr_text=text_asr)
         else:
+            
             window_size = self.config.INFERENCE.WINDOW_SIZE
             buffer_size = getattr(self.config.INFERENCE, 'BUFFER_SIZE', 25)
             start_idx = 0
@@ -564,22 +797,29 @@ class DiacritizationModule(L.LightningModule):
                 end_idx = min(len(text), start_idx + window_size)
 
                 chunk = text[start:end]
-                chunk_asr = text_asr[start*r:end*r] if text_asr else []
+                chunk_asr = text_asr[int(start*r):int(end*r)] if text_asr else []
                 encoded_chunk, encoded_asr_chunk, _ = self.tokenizer.encode(
                     chunk,
-                    chunk_asr
+                    chunk_asr, return_tensor=True
                 )
                 encoded_chunk = encoded_chunk.to(self.device)
                 encoded_asr_chunk = encoded_asr_chunk.to(self.device) if chunk_asr else None
 
                 with torch.no_grad():
                     outputs = self.model(encoded_chunk, inputs_asr=encoded_asr_chunk).squeeze(0)
-                    predictions = outputs.argmax(dim=-1).cpu().tolist()[1:-1]  # remove <sos> and <eos> 
-
-                decoded_chunk = self.tokenizer.decode(predictions[start_idx:end_idx], chunk[start_idx:end_idx])
+                    predictions = outputs.argmax(dim=-1).cpu().tolist()  # remove <sos> and <eos> 
+                
+                # if end_idx > len(text) - buffer_size:
+                #     decoded_chunk += self.tokenizer.decode(predictions[end_idx:], chunk[end_idx:])
+                #     output += decoded_chunk
+                #     break
+                # else:
+                
+                decoded_chunk = self.tokenizer.decode(predictions[start_idx-start:end_idx-start], chunk[start_idx-start:end_idx-start])
+                
                 output += decoded_chunk  
                 start_idx = end_idx
-
+            output = [output]
         return output
     
     def remove_diacritics(self, text:str) -> str:
