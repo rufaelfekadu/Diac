@@ -1,19 +1,13 @@
 import torch
 import re
 from torch.utils.data import Dataset, DataLoader
-from constants import constants
+from diac.constants import constants
 from typing import List, Tuple, Optional
 import csv
-from tokenizer import ArabicDiacritizationTokenizer
-from pyarabic.araby import strip_diacritics as remove_diacritics
+from diac.tokenizer import ArabicDiacritizationTokenizer
+from diac.utils.text import remove_diacritics, normalize_text
 
-# def remove_diacritics(data_raw: str) -> str:
-#     """
-#     Remove diacritics from text.
-#     """
-#     if not constants or not constants.diacritics_list:
-#         raise ValueError("Constants not loaded. Call load_constants first.")
-#     return data_raw.translate(str.maketrans('', '', ''.join(constants.diacritics_list)))
+
 
 def split_data_tashkeela(
     data_raw: List[str],
@@ -59,6 +53,7 @@ def split_data_tashkeela(
         return chunks
 
     for line in data_raw:
+        line = normalize_text(line)
         for sub in line.split("\n"):
             base = sub.strip()
             if not base:
@@ -128,13 +123,13 @@ class TextAudioDataset(Dataset):
                 reader = csv.reader(f, delimiter='\t') 
                 for row in reader:
                     if len(row) >= 2:
-                        lines.append(row[0])      
-                        asr_lines.append(row[1]) 
+                        lines.append(normalize_text(row[0]))      
+                        asr_lines.append(normalize_text(row[1])) 
                     elif len(row) == 1:
                         if max_length:
                             lines.extend(split_data_tashkeela([row[0]], max_length))
                         else:
-                            lines.append(row[0])
+                            lines.append(normalize_text(row[0]))
                     else:
                         continue  # Skip empty lines
                         
@@ -181,7 +176,7 @@ def collate_fn(batch: List[Tuple]) -> Tuple[torch.Tensor, ...]:
 
 if __name__ == "__main__":
 
-    from utils import load_constants
+    from diac.utils.utils import load_constants
     load_constants('constants')
     data_path = "data/clartts/test.txt,data/NADI-2025/nadi-all/dev.tsv"
     tokenizer = ArabicDiacritizationTokenizer(constants_path='constants')

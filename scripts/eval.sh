@@ -9,27 +9,48 @@ log() { printf "%s %s\n" "[INFO]" "$*"; }
 err() { printf "%s %s\n" "[ERROR]" "$*" >&2; }
 
 decode() {
-    local model=$1
-    local dataset=$2
-    local use_asr=${3:-"False"}
-    local model_type=${4:-"text-only"}
-    local override=${5:-""}
+    
+    local test_path=$1
+    local use_asr=${2:-"False"}
+    local override=${3:-""}
+    local result_dir=$4
 
-    local model_name="${model}-${model_type}-${dataset}"
-    local result_dir="results/${model}-${model_type}/${dataset}"
-
-    # Choose a sensible default test path depending on ASR usage
-    local test_path
-    test_path="data/clartts/test+asr.txt"
-
-    # Skip if already decoded, unless override is specified
-    if [ -f "${result_dir}/inference.done" ] && [ "${override}" != "true" ]; then
-        log "Model ${model_name} already decoded (found ${result_dir}/inference.done). Skipping..."
-        return 0
+    # result_dir is expected to be in the format model-modeltype/dataset and cannot be empty
+    if [ -z "${result_dir}" ]; then
+        err "result_dir argument is required"
+        return 1
     fi
 
-    local model_path="${result_dir}/tensorboard/version_0/checkpoints/best_model.ckpt"
-    local output_path="${result_dir}/predictions.txt"
+
+    # Extract parts from the result path
+    
+    # Extract model and model_type from the directory name part before the slash
+    local dir_name=$(dirname "${result_dir}")
+    local base_name=$(basename "${dir_name}")
+    local model=$(echo "${base_name}" | cut -d'-' -f1)
+    local model_type=$(echo "${base_name}" | cut -d'-' -f2-)
+    local dataset=$(basename "${result_dir}")
+
+    local model_name="${model}-${model_type}-${dataset}"
+
+
+    # Choose a sensible default test path depending on ASR usage
+    if [ -z "${test_path}" ]; then
+        test_path="data/clartts/test.txt"
+    fi
+
+    # Skip if already decoded, unless override is specified
+    # if [ -f "${result_dir}/inference.done" ] && [ "${override}" != "true" ]; then
+    #     log "Model ${model_name} already decoded (found ${result_dir}/inference.done). Skipping..."
+    #     return 0
+    # fi
+
+    # merge the dirs in the test path to one name using - as separator
+    local pred_file=$(echo "${test_path}" | tr '/' '-' | sed 's/^-//' | sed 's/-$//' | sed 's/\.[^.]*$//')
+
+    local latest_version=$(ls -d "${result_dir}/tensorboard/version_"* 2>/dev/null | sort -V | tail -n 1)
+    local model_path="${latest_version}/checkpoints/best_model.ckpt"
+    local output_path="${result_dir}/outs/${pred_file}"
 
     # Basic validation
     if [ ! -f "configs/${model}.yml" ]; then
@@ -60,30 +81,47 @@ decode() {
     cmd+=("DATA.TEST_PATH" "${test_path}")
     cmd+=("MODEL.USE_ASR" "${use_asr}")
     cmd+=("INFERENCE.MODEL_PATH" "${model_path}")
-    cmd+=("INFERENCE.OUTPUT_PATH" "${output_path}")
+    cmd+=("INFERENCE.OUTPUT_PATH" "${output_path}/pred.txt")
     cmd+=("INFERENCE.USE_ASR" "${use_asr}")
 
     log "Running command: ${cmd[*]}"
 
     if "${cmd[@]}"; then
         log "Inference completed successfully for ${model_name}. Creating ${result_dir}/inference.done"
-        touch "${result_dir}/inference.done"
+        # touch "${result_dir}/inference.done"
+        python src/diac/utils/prep_ref.py --input_file "${test_path}" -o "${output_path}"
         return 0
     else
         local rc=$?
         err "Inference failed for ${model_name} (exit code ${rc}). See above for details."
         return ${rc}
     fi
+    
 }
 
 evaluate() {
-    local model=$1
-    local model_type=$2
-    local dataset=$3
-    local test_file=$4
 
-    local prediction_path="results/${model}-${model_type}/${dataset}/predictions.txt"
-    local test_path="data/clartts/${test_file}"
+    
+    local test_path=${1:-""}
+    local result_dir=$2
+
+    # results-complete/transformer-text-only/tashkeela+arvoice
+        local dir_name=$(dirname "${result_dir}")
+        local base_name=$(basename "${dir_name}")
+        local model=$(echo "${base_name}" | cut -d'-' -f1)
+        local model_type=$(echo "${base_name}" | cut -d'-' -f2-)
+        local dataset=$(basename "${result_dir}")
+        local model_name="${model}-${model_type}-${dataset}"
+
+    
+    local pred_file=$(echo "${test_path}" | tr '/' '-' | sed 's/^-//' | sed 's/-$//' | sed 's/\.[^.]*$//')
+    local prediction_path="${result_dir}/outs/${pred_file}/pred.txt"
+    local reference_path="${result_dir}/outs/${pred_file}/ref.txt"
+
+    # set default test file if not provided
+    # if [ -z "${test_path}" ]; then
+    #     test_path="${reference_path}"
+    # fi
 
     log "Running evaluation with settings:"
     log "  Model: ${model}"
@@ -102,7 +140,7 @@ evaluate() {
     fi
 
     local -a cmd
-    cmd=(python eval.py -ofp "${prediction_path}" -tfp "${test_path}" --log_file "${log_file}")
+    cmd=(python src/diac/utils/eval.py -ofp "${prediction_path}" -tfp "${reference_path}" --log_file "${log_file}")
     log "Running: ${cmd[*]}"
     if "${cmd[@]}"; then
         log "Evaluation completed for ${model}-${model_type}/${dataset}"

@@ -6,9 +6,9 @@ import os
 import torch
 import lightning as L
 
-from tokenizer import ArabicDiacritizationTokenizer
-from model import DiacritizationModule
-from utils import load_cfg, load_constants, setup_loggers, setup_callbacks, setup_data_loaders
+from diac.tokenizer import ArabicDiacritizationTokenizer
+from diac.models.diacritization_model import DiacritizationModule
+from diac.utils.utils import load_cfg, load_constants, setup_loggers, setup_callbacks, setup_data_loaders
 
 os.environ["PYTHONIOENCODING"] = "utf-8"
 

@@ -76,12 +76,12 @@ The eval-*.log files contain the evaluation results.
 To train a model manually, run:
 ```bash
 python train_lightning.py --config configs/transformer.yml --opts \
-        DATA.TRAIN_PATH "data/NADI-2025/nadi-all/train.tsv" \
-        DATA.VAL_PATH "data/NADI-2025/nadi-all/dev.tsv" \
+        DATA.TRAIN_PATH "data/nadi-all/train.txt \
+        DATA.TEST_PATH "data/nadi-test/test.txt" \
         MODEL.USE_ASR True \
-        MODEL.LOAD_TEXT_BRANCH_ONLY False \
-        TRAIN.SAVE_DIR "results/transformer-text+asr/nadi"
-        MODEL.PRETRAINED_PATH "results/transformer-text-only/tashkeela/tensorboard/version_0/checkpoints/best_model.ckpt" \
+        MODEL.LOAD_TEXT_BRANCH_ONLY True \
+        TRAIN.SAVE_DIR "nadi-results/transformer-text+asr/tashkeela+nadi" \
+        MODEL.PRETRAINED_PATH "outputs/results/transformer-text-only/tashkeela/tensorboard/version_0/checkpoints/best_model.ckpt"
 
 ```
 
@@ -96,16 +96,16 @@ To run inference, use the following. The test file can be one of:
 
 ```bash
 python inference.py --config configs/transformer.yml --opts \
-        DATA.TEST_PATH "data/clartts/test+asr.txt" \
+        DATA.TEST_PATH "data/clartts/test.txt" \
         MODEL.USE_ASR True \
-        INFERENCE.MODEL_PATH "results/transformer-text+asr/tashkeela+clartts+nadi/tensorboard/version_1/checkpoints/best_model.ckpt" \
-        INFERENCE.OUTPUT_PATH "results/transformer-text+asr/tashkeela+clartts+nadi/predictions.txt" \
+        INFERENCE.MODEL_PATH "results-final/transformer-text+asr/tashkeela+clartts+clartts_aug/tensorboard/version_0/checkpoints/best_model.ckpt" \
+        INFERENCE.OUTPUT_PATH "results-final/transformer-text+asr/tashkeela+clartts+clartts_aug/predictions.txt" \
         INFERENCE.USE_ASR True
 ```
 This will create a text file with the predicted values at INFERENCE.OUTPUT_PATH. To evaluate, run:
 
 ```bash
-python eval.py -ofp /path/to/predicted-text -tfp /path/to/target-text
+python eval.py -ofp results-final/transformer-text+asr/tashkeela+clartts+clartts_aug/predictions.txt -tfp data/clartts/test_only.txt
 ```
 
 ## Acknowledgments

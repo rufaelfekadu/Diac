@@ -11,10 +11,10 @@ from lightning.pytorch.callbacks import (
 )
 from lightning.pytorch.loggers import TensorBoardLogger, CSVLogger
 
-from data import TextAudioDataset, create_dataloader
+from diac.data import TextAudioDataset, create_dataloader
 import logging
 
-from constants import constants, Constants
+from diac.constants import constants, Constants
 
 def load_constants(aux_dataset_path: str, with_extra_train: bool = False) -> Constants:
     """
@@ -56,41 +56,10 @@ def remove_special_chars(data_raw: str) -> str:
     _punctuations = ".,!?;:"
     return data_raw.translate(str.maketrans('', '', _punctuations))
 
-# def split_data_tashkeela(data_raw: List[str], max_length: int = 270) -> List[str]:
-#     """
-#     Split data into lines shorter than max_length characters (without diacritics).
 
-#     Inputs:
-#     - data_raw (List[str]): List of input lines
-#     - max_length (int): Maximum length of undiacritized text
-
-#     Outputs:
-#     - List[str]: List of split lines
-#     """
-#     data_new = []
-#     for line in data_raw:
-#         for sub_line in line.split('\n'):
-#             stripped = remove_diacritics(sub_line).strip()
-#             if len(stripped) == 0:
-#                 continue
-#             if len(stripped) <= max_length:
-#                 data_new.append(sub_line.strip())
-#             else:
-#                 words = sub_line.split()
-#                 tmp_line = ''
-#                 for word in words:
-#                     word_stripped = remove_diacritics(word).strip()
-#                     tmp_stripped = remove_diacritics(tmp_line).strip()
-#                     if len(tmp_stripped) + len(word_stripped) + 1 > max_length:
-#                         if len(tmp_stripped) > 0:
-#                             data_new.append(tmp_line.strip())
-#                         tmp_line = word_stripped
-#                     else:
-#                         tmp_line = word_stripped if tmp_line == '' else tmp_line + ' ' + word_stripped
-#                 if len(remove_diacritics(tmp_line).strip()) > 0:
-#                     data_new.append(tmp_line.strip())
-#     return data_new
-
+#################################################################################
+## Deprecated functions below
+#################################################################################
 def map_data(data_raw: List[str]) -> Tuple[List[List[int]], List[List[int]]]:
     """
     Convert text lines to sequences of character indices and diacritic class indices.
@@ -217,10 +186,45 @@ def decode_predictions(predictions: List[int], text: str) -> str:
 
     return decoded_text
 
+# def split_data_tashkeela(data_raw: List[str], max_length: int = 270) -> List[str]:
+#     """
+#     Split data into lines shorter than max_length characters (without diacritics).
+
+#     Inputs:
+#     - data_raw (List[str]): List of input lines
+#     - max_length (int): Maximum length of undiacritized text
+
+#     Outputs:
+#     - List[str]: List of split lines
+#     """
+#     data_new = []
+#     for line in data_raw:
+#         for sub_line in line.split('\n'):
+#             stripped = remove_diacritics(sub_line).strip()
+#             if len(stripped) == 0:
+#                 continue
+#             if len(stripped) <= max_length:
+#                 data_new.append(sub_line.strip())
+#             else:
+#                 words = sub_line.split()
+#                 tmp_line = ''
+#                 for word in words:
+#                     word_stripped = remove_diacritics(word).strip()
+#                     tmp_stripped = remove_diacritics(tmp_line).strip()
+#                     if len(tmp_stripped) + len(word_stripped) + 1 > max_length:
+#                         if len(tmp_stripped) > 0:
+#                             data_new.append(tmp_line.strip())
+#                         tmp_line = word_stripped
+#                     else:
+#                         tmp_line = word_stripped if tmp_line == '' else tmp_line + ' ' + word_stripped
+#                 if len(remove_diacritics(tmp_line).strip()) > 0:
+#                     data_new.append(tmp_line.strip())
+#     return data_new
+#############################################################################
 
 
 def load_cfg(args):
-    from config import _C as cfg
+    from diac.config import _C as cfg
     if args.config:
         cfg.merge_from_file(args.config)
     if args.opts:
@@ -230,7 +234,7 @@ def load_cfg(args):
 
 def dump_cfg(config, path):
     import yaml 
-    from config import _to_dict
+    from diac.config import _to_dict
     with open(path, 'w') as f:
         yaml.dump(_to_dict(config), f)
 
@@ -315,7 +319,7 @@ def setup_loggers(config):
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler(f"{config.TRAIN.SAVE_DIR}/training.log"),
+            # logging.FileHandler(f"{config.TRAIN.SAVE_DIR}/training.log"),
             logging.StreamHandler()
         ]
     )

@@ -19,12 +19,13 @@ train_model() {
     local use_asr=${5:-"False"}
     local pretrained_path=${6:-""}
     local load_text_branch=${7:-"False"}
-    local save_dir=${8:-"results/${model_name}"}
+    local override=${8:-"False"}
+    local save_dir=${9:-"results/${model_name}"}
 
     log "Training model: ${model_name} with data: ${train_data}"
 
     # Check if model is already trained
-    if [ -f "${save_dir}/training.done" ]; then
+    if [ -f "${save_dir}/training.done" ] && [ "${override}" = "False" ]; then
         log "Model ${model_name} already trained (found ${save_dir}/training.done). Skipping..."
         return 0
     fi

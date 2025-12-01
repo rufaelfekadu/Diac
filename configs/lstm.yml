@@ -19,8 +19,8 @@ MODEL:
 
 TRAIN:
   DEVICE: 'cuda'
-  BATCH_SIZE: 128
-  NUM_EPOCHS: 100
+  BATCH_SIZE: 32
+  NUM_EPOCHS: 120
   LEARNING_RATE: 0.001
   SAVE_FREQ: 30
   EVAL_FREQ: 1
@@ -36,16 +36,16 @@ INFERENCE:
   BUFFER_SIZE: 25
   DEVICE: 'cuda'
   BATCH_SIZE: 16
-  MODEL_PATH: 'checkpoints/lstm-text-only/tashkeela/tensorboard/version_0/checkpoints/best_model.ckpt'
+  MODEL_PATH: null
   ASR_MODEL_NAME: 'sashat/whisper-medium-ClassicalAr'
   USE_ASR: False
   FORCED_IDS: null
-  OUTPUT_PATH: 'results/lstm-text-only/taskeela.txt'
+  OUTPUT_PATH: './predictions.txt'
 
 DATA:
   TRAIN_PATH: 'data/tashkeela/train.txt'
   VAL_PATH: null
-  TEST_PATH: 'data/clartts/ClarTTS_test_Ref.txt'
+  TEST_PATH: 'data/clartts/test.txt'
   MAX_LENGTH: 270
 
 CONSTANTS_PATH: 'constants/'

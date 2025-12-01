@@ -9,6 +9,8 @@ import argparse
 import pickle as pkl
 import logging
 import os
+import unicodedata
+from diac.utils.text import normalize_text, remove_diacritics
 
 CONSTANTS_PATH = 'constants'
 
@@ -62,6 +64,7 @@ def get_diacritics_classes(line, case_ending, arabic_letters, diacritic_classes,
   return classes
 
 def clear_line(line, arabic_letters, diacritic_classes):
+    line = normalize_text(line)
     line = ' '.join(''.join([char if char in list(arabic_letters) + diacritic_classes + [' '] else ' ' for char in line]).split())
     new_line = ''
     for idx, char in enumerate(line):
@@ -94,13 +97,16 @@ def calculate_der(original_file, target_file, arabic_letters, diacritic_classes,
     target_classes = get_diacritics_classes(target_line, case_ending, arabic_letters, diacritic_classes, style)
     assert(len(original_classes) == len(target_classes))
 
+
     for (original_class, target_class) in zip(original_classes, target_classes):
       if not no_diacritic and original_class == 0:
         continue
       if original_class == -1 and target_class != -1:
         print('WOW!')
+        # breakpoint()
       if original_class != -1 and target_class == -1:
         print('WOW!')
+        # breakpoint()
       if original_class == -1 and target_class == -1:
         continue
 
@@ -127,8 +133,10 @@ def calculate_wer(original_file, target_file, arabic_letters, diacritic_classes,
 
     original_line = original_line.split()
     target_line = target_line.split()
-
-    assert(len(original_line) == len(target_line))
+    try:
+      assert(len(original_line) == len(target_line))
+    except:
+      breakpoint()
 
     for (original_word, target_word) in zip(original_line, target_line):
       original_classes = get_diacritics_classes(original_word, case_ending, arabic_letters, diacritic_classes, style)

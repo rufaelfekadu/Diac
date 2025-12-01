@@ -20,17 +20,18 @@ MODEL:
 TRAIN:
   DEVICE: 'cuda'
   BATCH_SIZE: 128
-  NUM_EPOCHS: 100
+  NUM_EPOCHS: 1000
   LEARNING_RATE: 0.001
   SAVE_FREQ: 30
   EVAL_FREQ: 1
   SAVE_DIR: 'checkpoints/transformer-sine-text-only/tashkeela'
-  EARLY_STOPPING_PATIENCE: 10
+  EARLY_STOPPING_PATIENCE: 50
   ACCUMULATE_GRAD_BATCHES: 1
   VAL_CHECK_INTERVAL: 1.0
+  GRAD_CLIP_NORM: 10.0
 
 INFERENCE:
-  MAX_LENGTH: 300
+  MAX_LENGTH: 270
   WINDOW_SIZE: 50
   BUFFER_SIZE: 25
   DEVICE: 'cuda'
@@ -44,7 +45,7 @@ INFERENCE:
 DATA:
   TRAIN_PATH: 'data/tashkeela/train.txt'
   VAL_PATH: null
-  TEST_PATH: 'data/clartts/ClarTTS_test_Ref.txt'
+  TEST_PATH: 'data/clartts/test.txt'
   MAX_LENGTH: 270
 
 CONSTANTS_PATH: 'constants/'
