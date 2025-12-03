@@ -7,4 +7,4 @@ def remove_diacritics(text: str) -> str:
 
 
 def normalize_text(text: str) -> str:
-    return unicodedata.normalize("NFD", text)
+    return unicodedata.normalize("NFC", text)

@@ -35,7 +35,7 @@ INFERENCE:
   BUFFER_SIZE: 25
   DEVICE: 'cuda'
   BATCH_SIZE: 16
-  MODEL_PATH: 'outputs/results/transformer-text+asr/tashkeela+clartts/tensorboard/version_0/checkpoints/best_model.ckpt'
+  MODEL_PATH: '/home/rufael/Projects/forced_alignment/Diac/outputs/old/results/transformer-text+asr/tashkeela+clartts/tensorboard/version_0/checkpoints/best_model.ckpt'
   ASR_MODEL_NAME: 'sashat/whisper-medium-ClassicalAr'
   USE_ASR: True
   FORCED_IDS: null

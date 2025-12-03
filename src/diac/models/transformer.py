@@ -35,7 +35,7 @@ class TokenAndPositionEmbedding(nn.Module):
         self.vocab_size = vocab_size
         self.embed_dim = embed_dim
         self.token_emb = nn.Embedding(vocab_size, embed_dim)
-        # self.pos_emb = SinePositionEncoding(embed_dim, maxlen)
+        self.pos_emb = SinePositionEncoding(embed_dim, maxlen)
         # self.pos_emb = nn.Embedding(maxlen, embed_dim)
 
     def forward(self, inputs):

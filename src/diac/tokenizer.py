@@ -186,6 +186,9 @@ class ArabicDiacritizationTokenizer:
         Returns:
             List of diacritic class indices
         """
+
+        text = self.preprocess_text(text, _remove_diacritics=False)
+        
         labels = [self.constants.classes_mapping["<SOS>"]]
 
         idx = 0
@@ -243,6 +246,7 @@ class ArabicDiacritizationTokenizer:
         Returns:
             Tuple of (encoded text, encoded ASR text, diacritic labels)
         """
+        
         encoded_text = self.encode_text(text)
         encoded_asr = self.encode_asr_text(asr_text) if asr_text else None
         labels = self.encode_labels(text)
@@ -330,7 +334,7 @@ class ArabicDiacritizationTokenizer:
             Text with predicted diacritics
         """
         decoded_text = ""
-        clean_text = self.remove_diacritics(original_text)
+        clean_text = self.preprocess_text(original_text, _remove_diacritics=True)
 
         # Skip SOS token at the beginning if present
         start_idx = (

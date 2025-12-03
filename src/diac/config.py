@@ -32,6 +32,8 @@ _C.TRAIN.SAVE_DIR = "checkpoints/"
 # Lightning-specific settings
 _C.TRAIN.EARLY_STOPPING_PATIENCE = 10  # Early stopping patience
 _C.TRAIN.ACCUMULATE_GRAD_BATCHES = 1  # Gradient accumulation
+_C.TRAIN.LR_SCHEDULER_FACTOR = 0.5  # Learning rate scheduler factor
+_C.TRAIN.LR_SCHEDULER_PATIENCE = 5  # Learning rate scheduler patience
 _C.TRAIN.VAL_CHECK_INTERVAL = 1.0  # Validation check interval
 _C.TRAIN.GRAD_CLIP_NORM = None  # Gradient clipping norm, None means no clipping
 

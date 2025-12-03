@@ -441,7 +441,7 @@ class DiacritizationModule(L.LightningModule):
 
         return decoded_texts
 
-    def predict_sliding_window(self, text, asr_text=None):
+    def predict_sliding_window(self, text, asr_text=[]):
         self.model.eval()
         original_text = text
 
@@ -477,7 +477,7 @@ class DiacritizationModule(L.LightningModule):
                 )
                 encoded_chunk = encoded_chunk.to(self.device)
                 encoded_asr_chunk = (
-                    encoded_asr_chunk.to(self.device) if chunk_asr else None
+                    encoded_asr_chunk.to(self.device) if chunk_asr else []
                 )
 
                 with torch.no_grad():
@@ -538,7 +538,7 @@ class DiacritizationModule(L.LightningModule):
                     audio_path = line[0]
                     asr_text = asr_model.transcribe(audio_path) if asr_model else None
                     diacritized_line = self.predict_sliding_window(
-                        line[1], text_asr=asr_text
+                        line[1], asr_text=asr_text
                     )
                     f_out.write(diacritized_line + "\n")
             return
@@ -554,7 +554,7 @@ class DiacritizationModule(L.LightningModule):
                     if not line:
                         continue
                     diacritized_line = self.predict_sliding_window(
-                        line[0], text_asr=line[1]
+                        line[0], asr_text=line[1]
                     )[0]
                     f_out.write(diacritized_line + "\n")
             return

@@ -18,8 +18,8 @@ DATA_PATH="data"
 avail_models=("transformer")
 avail_model_types=("text-only" "text+asr") # text-only and text+asr
 avail_pretrain_datasets=("tashkeela") 
-avail_finetune_datasets=("clartts" "nadi-all" "arvoice-old" "arvoice-new" "arvoice-turbo")
-test_paths=("data/clartts/test.txt" "data/NADI-2025/nadi-all/dev.tsv" "data/arvoice/test.txt" "data/arvoice-turbo/test.txt")
+avail_finetune_datasets=("clartts")
+test_paths=("data/clartts/test.txt")
 # CLI option parsing for sweep orchestration
 STOP_ON_FAILURE=0
 # Stage controls which stages to run:
@@ -277,5 +277,4 @@ if [ "$FAILED" -ne 0 ]; then
     err "${FAILED} job(s) failed. See logs above."
     exit 10
 fi
-
 log "All sweep jobs completed successfully"
