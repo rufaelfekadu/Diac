@@ -31,7 +31,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Diacritization Inference")
     parser.add_argument(
-        "--config", type=str, default="configs/lstm.yml", help="Path to the config file"
+        "--config", type=str, default="configs/transformer-test.yml", help="Path to the config file"
     )
     parser.add_argument(
         "--opts",

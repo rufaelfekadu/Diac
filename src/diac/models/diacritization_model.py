@@ -106,17 +106,17 @@ class DiacritizationModule(L.LightningModule):
                     )
         # build or load tokenizer
         # download constants
-        if tokenizer is None and tokenizer_constants_path is None:
-            try:
-                constants_file = _download_file("constants.json")
-                if constants_file:
-                    tokenizer = ArabicDiacritizationTokenizer(constants_file)
-            except Exception:
-                raise RuntimeError(
-                    "Failed to load tokenizer from constants.json in the repo."
-                )
+        # if tokenizer is None and tokenizer_constants_path is None:
+        #     try:
+        #         constants_file = _download_file("constants.json")
+        #         if constants_file:
+        #             tokenizer = ArabicDiacritizationTokenizer(constants_file)
+        #     except Exception:
+        #         raise RuntimeError(
+        #             "Failed to load tokenizer from constants.json in the repo."
+        #         )
 
-        elif tokenizer_constants_path is not None and tokenizer is None:
+        if tokenizer_constants_path is not None and tokenizer is None:
             tokenizer = ArabicDiacritizationTokenizer(tokenizer_constants_path)
 
         elif isinstance(tokenizer, ArabicDiacritizationTokenizer):

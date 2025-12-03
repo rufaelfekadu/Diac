@@ -11,7 +11,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     model = DiacritizationModule.from_pretrained(
-        args.model_name
+        args.model_name,
+        tokenizer_constants_path="constants/"
     )
 
     model.predict_file(
