@@ -1,14 +1,19 @@
 from diac.models import DiacritizationModule
 from datasets import load_dataset
-
+import argparse
 
 if __name__ == "__main__":
 
-    test_path = "data/clartts/test.txt"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model_name", type=str, default="rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts")
+    parser.add_argument("--test_path", type=str, default="data/clartts/test.txt")
+    parser.add_argument("--output_path", type=str, default="outputs/hf_inference_output.txt")
+    args = parser.parse_args()
+
     model = DiacritizationModule.from_pretrained(
-        "rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts"
+        args.model_name
     )
 
     model.predict_file(
-        input_file=test_path, output_file="outputs/hf_inference_output.txt"
+        input_file=args.test_path, output_file=args.output_path
     )
