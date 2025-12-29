@@ -27,12 +27,14 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
 import os
+import re
 import shutil
 import tempfile
 import textwrap
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 try:
     from huggingface_hub import create_repo, Repository, HfApi
@@ -50,14 +52,14 @@ except Exception:  # allow script to run without torch for dry-run
 CHECKPOINT_GLOBS = [
     # "**/checkpoints/*.ckpt",
     "**/checkpoints/*best*.ckpt",
-    "**/checkpoints/*.pt",
-    "**/checkpoints/*.pth",
+    # "**/checkpoints/*.pt",
+    # "**/checkpoints/*.pth",
     # "**/*.ckpt",
-    "**/*.pt",
-    "**/*.pth",
-    "**/pytorch_model.bin",
-    "**/model.pt",
-    "**/model.pth",
+    # "**/*.pt",
+    # "**/*.pth",
+    # "**/pytorch_model.bin",
+    # "**/model.pt",
+    # "**/model.pth",
 ]
 
 
@@ -105,17 +107,465 @@ def get_model_dataset(ckpt_path: Path) -> str:
     return f"diac-{model}-{dataset}"
 
 
-def find_constants_dir(start: Path) -> Optional[Path]:
-    # walk upwards from start to find a 'constants' folder
-    cur = start
-    for _ in range(6):  # limit upward search depth
-        cand = cur / "constants"
-        if cand.is_dir():
-            return cand.resolve()
+def find_eval_logs(checkpoint_path: Path) -> List[Path]:
+    """Find evaluation log files near the checkpoint directory.
+    
+    Looks for logs in: <checkpoint_dir>/../logs/eval-*.log
+    Also checks parent directories up to 6 levels.
+    """
+    logs = []
+    # Check checkpoint parent and ancestors for logs directory
+    cur = checkpoint_path.parent
+    for _ in range(6):
+        logs_dir = cur / "logs"
+        if logs_dir.exists() and logs_dir.is_dir():
+            for log_file in logs_dir.glob("eval-*.log"):
+                logs.append(log_file)
         if cur.parent == cur:
             break
         cur = cur.parent
+    return logs
+
+
+def parse_metric_line(line: str) -> Optional[List[float]]:
+    """Parse a metric table row line to extract 4 float values.
+    
+    Expected format: |   %   |    6.43    |    4.95    |    7.89    |    6.03    |
+    """
+    # Match lines like: |   %   | ... | ... | ... | ... |
+    m = re.match(r"^\|\s*%\s*\|(.+?)\|\s*$", line)
+    if not m:
+        return None
+    inner = m.group(1)
+    parts = [p.strip() for p in inner.split("|")]
+    nums: List[float] = []
+    for p in parts:
+        p2 = p.replace(",", ".")
+        if re.search(r"\d", p2):
+            try:
+                nums.append(float(p2))
+            except ValueError:
+                continue
+    if len(nums) >= 4:
+        return nums[:4]
     return None
+
+
+def parse_eval_log(log_path: Path) -> Optional[Dict]:
+    """Parse a single evaluation log file and extract metrics and metadata.
+    
+    Returns a dict with:
+    - model: model name
+    - model_type: model type (e.g., text-only, text-asr)
+    - dataset: training dataset
+    - eval_set: evaluation dataset
+    - der: [4 values] - DER metrics
+    - wer: [4 values] - WER metrics  
+    - ser: [4 values] - SER metrics
+    """
+    model = model_type = training_dataset = eval_set = None
+    der_values = wer_values = ser_values = None
+    expecting_der = expecting_wer = expecting_ser = False
+    
+    MODEL_RE = re.compile(r"Model:\s*(\S+)")
+    MODEL_TYPE_RE = re.compile(r"Model Type:\s*(\S+)")
+    DATASET_RE = re.compile(r"Dataset:\s*(\S+)")
+    TEST_FILE_RE = re.compile(r"Test file:\s*(\S+)")
+    
+    try:
+        with log_path.open("r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line_stripped = line.strip()
+                
+                # Extract metadata
+                if "Model:" in line_stripped and model is None:
+                    mm = MODEL_RE.search(line_stripped)
+                    if mm:
+                        model = mm.group(1)
+                elif "Model Type:" in line_stripped and model_type is None:
+                    mt = MODEL_TYPE_RE.search(line_stripped)
+                    if mt:
+                        model_type = mt.group(1)
+                elif "Dataset:" in line_stripped and training_dataset is None:
+                    ds = DATASET_RE.search(line_stripped)
+                    if ds:
+                        training_dataset = ds.group(1)
+                elif "Test file:" in line_stripped and eval_set is None:
+                    tf = TEST_FILE_RE.search(line_stripped)
+                    if tf:
+                        parts = Path(tf.group(1)).parts
+                        if "data" in parts:
+                            idx = parts.index("data")
+                            if idx + 1 < len(parts):
+                                eval_set = parts[idx + 1]
+                
+                # Identify metric sections
+                if re.search(r"\|\s+DER\s+\|", line):
+                    expecting_der = True
+                    expecting_wer = False
+                    expecting_ser = False
+                elif re.search(r"\|\s+WER\s+\|", line):
+                    expecting_wer = True
+                    expecting_der = False
+                    expecting_ser = False
+                elif re.search(r"\|\s+SER\s+\|", line):
+                    expecting_ser = True
+                    expecting_der = False
+                    expecting_wer = False
+                
+                # Parse metric values
+                if "|   %" in line:
+                    vals = parse_metric_line(line)
+                    if vals:
+                        if expecting_der and der_values is None:
+                            der_values = vals
+                            expecting_der = False
+                        elif expecting_wer and wer_values is None:
+                            wer_values = vals
+                            expecting_wer = False
+                        elif expecting_ser and ser_values is None:
+                            ser_values = vals
+                            expecting_ser = False
+                
+                # Reset if we hit a separator line
+                if line.strip().startswith("+") and (expecting_der or expecting_wer or expecting_ser):
+                    expecting_der = expecting_wer = expecting_ser = False
+                    
+    except Exception as e:
+        print(f"Warning: failed to parse {log_path}: {e}")
+        return None
+    
+    # Fallback: try to extract from path
+    if (model is None or model_type is None or training_dataset is None) and "results" in log_path.parts:
+        try:
+            idx = log_path.parts.index("results")
+            if idx + 2 < len(log_path.parts):
+                model_full_dir = log_path.parts[idx + 1]
+                path_training_dataset = log_path.parts[idx + 2]
+                if model is None and model_type is None and "-" in model_full_dir:
+                    tokens = model_full_dir.split("-")
+                    model = tokens[0]
+                    model_type = "-".join(tokens[1:])
+                else:
+                    model = model or model_full_dir
+                    model_type = model_type or "unknown"
+                training_dataset = training_dataset or path_training_dataset
+        except Exception:
+            pass
+    
+    if model is None:
+        return None
+    
+    result = {
+        "model": model or "unknown",
+        "model_type": model_type or "unknown",
+        "dataset": training_dataset or "unknown",
+        "eval_set": eval_set or "unknown",
+        "der": der_values,
+        "wer": wer_values,
+        "ser": ser_values,
+    }
+    return result
+
+
+def extract_model_metadata(checkpoint: Path, configs: List[Path]) -> Dict:
+    """Extract model metadata for YAML frontmatter.
+    
+    Returns a dict with model information extracted from checkpoint path and configs.
+    """
+    metadata = {
+        "language": ["ar"],
+        "tags": ["diacritization", "nlp", "arabic"],
+        "metrics": ["DER", "WER", "SER"],
+    }
+    
+    # Try to extract model type from checkpoint path
+    # Pattern: results/<model>-<type>/<dataset>/tensorboard/version_*/checkpoints/...
+    path_parts = checkpoint.parts
+    if "results" in path_parts:
+        try:
+            idx = path_parts.index("results")
+            if idx + 1 < len(path_parts):
+                model_full = path_parts[idx + 1]
+                if "-" in model_full:
+                    parts = model_full.split("-")
+                    model_name = parts[0]
+                    model_type = "-".join(parts[1:])
+                    metadata["model_type"] = model_type.lower()
+                    if model_type.lower() in ["transformer", "lstm"]:
+                        metadata["tags"].append(model_type.lower())
+                else:
+                    metadata["model_type"] = model_full.lower()
+        except Exception:
+            pass
+    
+    # Try to extract dataset from path
+    if "results" in path_parts:
+        try:
+            idx = path_parts.index("results")
+            if idx + 2 < len(path_parts):
+                dataset = path_parts[idx + 2]
+                metadata["datasets"] = [dataset]
+        except Exception:
+            pass
+    
+    # Try to read config files for additional metadata
+    for config_path in configs:
+        try:
+            if config_path.suffix in [".yaml", ".yml"]:
+                try:
+                    import yaml
+                except ImportError:
+                    # yaml not available, skip config parsing
+                    continue
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config_data = yaml.safe_load(f)
+                    if isinstance(config_data, dict):
+                        if "MODEL" in config_data and "TYPE" in config_data["MODEL"]:
+                            model_type = config_data["MODEL"]["TYPE"].lower()
+                            metadata["model_type"] = model_type
+                            if model_type not in metadata["tags"]:
+                                metadata["tags"].append(model_type)
+        except Exception:
+            pass
+    
+    return metadata
+
+
+def generate_config_json(
+    checkpoint: Path,
+    configs: List[Path],
+    metadata: Dict,
+) -> Dict:
+    """Generate a config.json file for Hugging Face Hub download tracking.
+    
+    Args:
+        checkpoint: Path to the checkpoint file
+        configs: List of config file paths
+        metadata: Model metadata dict from extract_model_metadata
+    
+    Returns:
+        Dictionary representing the config.json content
+    """
+    config_data = {
+        "model_type": metadata.get("model_type", "diacritization"),
+        "architecture": metadata.get("model_type", "transformer").title(),
+    }
+    
+    # Try to extract additional config from YAML files
+    for config_path in configs:
+        try:
+            if config_path.suffix in [".yaml", ".yml"]:
+                try:
+                    import yaml
+                except ImportError:
+                    continue
+                with open(config_path, "r", encoding="utf-8") as f:
+                    yaml_data = yaml.safe_load(f)
+                    if isinstance(yaml_data, dict):
+                        # Extract model configuration
+                        if "MODEL" in yaml_data:
+                            model_cfg = yaml_data["MODEL"]
+                            if "TYPE" in model_cfg:
+                                config_data["model_type"] = model_cfg["TYPE"].lower()
+                                config_data["architecture"] = model_cfg["TYPE"]
+                            if "D_MODEL" in model_cfg:
+                                config_data["d_model"] = model_cfg["D_MODEL"]
+                            if "NUM_HEADS" in model_cfg:
+                                config_data["num_heads"] = model_cfg["NUM_HEADS"]
+                            if "NUM_BLOCKS" in model_cfg:
+                                config_data["num_blocks"] = model_cfg["NUM_BLOCKS"]
+                            if "DFF" in model_cfg:
+                                config_data["dff"] = model_cfg["DFF"]
+                            if "USE_ASR" in model_cfg:
+                                config_data["use_asr"] = model_cfg["USE_ASR"]
+                        break  # Use first valid config
+        except Exception:
+            continue
+    
+    # Add dataset info if available
+    if "datasets" in metadata:
+        config_data["datasets"] = metadata["datasets"]
+    
+    return config_data
+
+
+def format_metric_table(metric_name: str, values: Optional[List[float]]) -> str:
+    """Format metric values as a Markdown table.
+    
+    Args:
+        metric_name: Name of the metric (DER, WER, SER)
+        values: List of 4 float values [w_case_incl, wo_case_incl, w_case_excl, wo_case_excl]
+    
+    Returns:
+        Markdown table string
+    """
+    if not values or len(values) < 4:
+        return f"### {metric_name}\n\n*No evaluation results available.*\n\n"
+    
+    # Format as a clear table with all 4 metric variants
+    # Values: [w_case_incl, wo_case_incl, w_case_excl, wo_case_excl]
+    table = f"""{metric_name}
+
+| Configuration | With case ending | Without case ending |
+|---|---|---|
+| **Including no diacritic** | {values[0]:.2f}% | {values[1]:.2f}% |
+| **Excluding no diacritic** | {values[2]:.2f}% | {values[3]:.2f}% |
+
+"""
+    return table
+
+
+def generate_readme(
+    checkpoint: Path,
+    configs: List[Path],
+    eval_results: List[Dict],
+    repo_id: str,
+) -> str:
+    """Generate a comprehensive README.md with YAML frontmatter, instructions, and evaluation results.
+    
+    Args:
+        checkpoint: Path to the checkpoint file
+        configs: List of config file paths
+        eval_results: List of parsed evaluation result dicts
+        repo_id: Hugging Face repository ID
+    
+    Returns:
+        Complete README content as string
+    """
+    # Extract metadata for YAML
+    metadata = extract_model_metadata(checkpoint, configs)
+    
+    # Build YAML frontmatter
+    yaml_lines = ["---"]
+    yaml_lines.append(f"language: {metadata['language']}")
+    yaml_lines.append(f"tags:")
+    for tag in metadata["tags"]:
+        yaml_lines.append(f"  - {tag}")
+    yaml_lines.append(f"metrics:")
+    for metric in metadata["metrics"]:
+        yaml_lines.append(f"  - {metric}")
+    # if "model_type" in metadata:
+    #     yaml_lines.append(f"model_type: {metadata['model_type']}")
+    # if "datasets" in metadata:
+    #     yaml_lines.append(f"datasets:")
+    #     for ds in metadata["datasets"]:
+    #         yaml_lines.append(f"  - {ds}")
+    yaml_lines.append("---")
+    yaml_frontmatter = "\n".join(yaml_lines)
+    
+    # Build README content
+    readme_parts = [yaml_frontmatter, ""]
+    readme_parts.append("# Automatic Restoration of Diacritics for Speech Data Sets")
+    readme_parts.append("")
+    
+    # Model description
+    readme_parts.append(f"This is a transformer-baed model for Arabic text diacritization as described [here](https://github.com/rufaelfekadu/Diac.git).")
+    readme_parts.append("")
+    
+    
+    # Evaluation results
+    if eval_results:
+        readme_parts.append("## Evaluation Results")
+        readme_parts.append("")
+        
+        # Group results by eval_set if multiple
+        for result in eval_results:
+            if result.get("eval_set") and result["eval_set"] != "unknown":
+                readme_parts.append(f"### Evaluation on {result['eval_set']}")
+                readme_parts.append("")
+            
+            if result.get("der"):
+                readme_parts.append(format_metric_table("DER (Diacritic Error Rate)", result["der"]))
+            if result.get("wer"):
+                readme_parts.append(format_metric_table("WER (Word Error Rate)", result["wer"]))
+            # if result.get("ser"):
+            #     readme_parts.append(format_metric_table("SER (Sentence Error Rate)", result["ser"]))
+    else:
+        readme_parts.append("## Evaluation Results")
+        readme_parts.append("")
+        readme_parts.append("*No evaluation results found in log files.*")
+        readme_parts.append("")
+    
+    # Usage instructions
+    readme_parts.append("## How to Use")
+    readme_parts.append("")
+    readme_parts.append("### Installation")
+    readme_parts.append("")
+    readme_parts.append("```bash")
+    readme_parts.append("git clone https://github.com/rufaelfekadu/diac.git")
+    readme_parts.append("cd diac")
+    readme_parts.append("pip install -e .")
+    readme_parts.append("```")
+    readme_parts.append("")
+    
+    readme_parts.append("### Loading the Model")
+    readme_parts.append("")
+    readme_parts.append("```python")
+    readme_parts.append("from diac.models import DiacritizationModule")
+    readme_parts.append("")
+    readme_parts.append(f"model = DiacritizationModule.from_pretrained(")
+    readme_parts.append(f'    "{repo_id}",')
+    readme_parts.append('    tokenizer_constants_path="constants/"  # Path to constants directory')
+    readme_parts.append(")")
+    readme_parts.append("```")
+    readme_parts.append("")
+    
+    readme_parts.append("### Running Inference")
+    readme_parts.append("")
+    readme_parts.append("```python")
+    readme_parts.append("# Predict diacritization for a text file")
+    readme_parts.append("model.predict_file(")
+    readme_parts.append('    input_file="path/to/input.txt",')
+    readme_parts.append('    output_file="path/to/output.txt"')
+    readme_parts.append(")")
+    readme_parts.append("")
+    readme_parts.append("# Or predict for a single text string")
+    readme_parts.append("diacritized_text = model.predict_text(\"مرحبا بك\")")
+    readme_parts.append("```")
+    readme_parts.append("")
+    
+    readme_parts.append("### Running Evaluation")
+    readme_parts.append("")
+    readme_parts.append("To evaluate the model on your own test set:")
+    readme_parts.append("")
+    readme_parts.append("1. **Run inference** to generate predictions:")
+    readme_parts.append("")
+    readme_parts.append("```bash")
+    readme_parts.append("python inference.py \\")
+    readme_parts.append("    --config configs/<model>.yml \\")
+    readme_parts.append("    --opts \\")
+    readme_parts.append("    DATA.TEST_PATH path/to/test.txt \\")
+    readme_parts.append(f"    INFERENCE.MODEL_PATH <path_to_checkpoint> \\")
+    readme_parts.append("    INFERENCE.OUTPUT_PATH path/to/predictions.txt")
+    readme_parts.append("```")
+    readme_parts.append("")
+    
+    readme_parts.append("2. **Prepare reference file** (if needed):")
+    readme_parts.append("")
+    readme_parts.append("```bash")
+    readme_parts.append("python src/diac/utils/prep_ref.py \\")
+    readme_parts.append("    --input_file path/to/test.txt \\")
+    readme_parts.append("    -o path/to/output_dir")
+    readme_parts.append("```")
+    readme_parts.append("")
+    
+    readme_parts.append("3. **Calculate metrics** (DER, WER, SER):")
+    readme_parts.append("")
+    readme_parts.append("```bash")
+    readme_parts.append("python src/diac/utils/eval.py \\")
+    readme_parts.append("    -ofp path/to/predictions.txt \\")
+    readme_parts.append("    -tfp path/to/reference.txt \\")
+    readme_parts.append("    --style Fadel")
+    readme_parts.append("```")
+    readme_parts.append("")
+    
+    readme_parts.append("The evaluation script will output DER, WER, and SER metrics with different configurations:")
+    readme_parts.append("- With/without case ending")
+    readme_parts.append("- Including/excluding no diacritic")
+    readme_parts.append("")
+    
+    return "\n".join(readme_parts)
 
 
 def find_config_files(start: Path) -> List[Path]:
@@ -144,7 +594,7 @@ def push_single_checkpoint(
     checkpoint: Path,
     repo_id: str,
     hf_token: Optional[str],
-    include_constants: bool = True,
+    include_constants: bool = False,
     dry_run: bool = False,
     upload_method: str = "git",
 ):
@@ -167,14 +617,11 @@ def push_single_checkpoint(
     for c in cfgs:
         files_to_copy.append((c, c.name))
 
-    # try to find constants folder
-    constants_dir = find_constants_dir(base_dir) if include_constants else None
 
     planned = {
         "repo_id": repo_id,
         "checkpoint": str(checkpoint),
         "configs": [str(p) for p in cfgs],
-        "constants_dir": str(constants_dir) if constants_dir is not None else None,
     }
 
     if dry_run:
@@ -186,7 +633,6 @@ def push_single_checkpoint(
             repo: {planned['repo_id']}
             checkpoint: {planned['checkpoint']}
             configs: {planned['configs']}
-            constants: {planned['constants_dir']}
         """
                 ),
                 "  ",
@@ -262,12 +708,6 @@ def push_single_checkpoint(
     except Exception as e:
         print("Could not run git status:", e)
 
-    # copy constants folder if found
-    if constants_dir:
-        dest_constants = os.path.join(tmpdir, "constants")
-        if os.path.exists(dest_constants):
-            shutil.rmtree(dest_constants)
-        shutil.copytree(constants_dir, dest_constants)
 
     # attempt to generate a pytorch model state file (pytorch_model.bin) when possible
     if torch is not None:
@@ -291,17 +731,35 @@ def push_single_checkpoint(
             # not fatal
             pass
 
-    # write a small README describing source
+    # Find and parse evaluation logs
+    eval_logs = find_eval_logs(checkpoint)
+    eval_results = []
+    for log_path in eval_logs:
+        result = parse_eval_log(log_path)
+        if result:
+            eval_results.append(result)
+    
+    # Generate comprehensive README
+    readme_content = generate_readme(
+        checkpoint=checkpoint,
+        configs=cfgs,
+        eval_results=eval_results,
+        repo_id=repo_id,
+    )
+    
+    # write README
     readme = os.path.join(tmpdir, "README.md")
     with open(readme, "w", encoding="utf-8") as fh:
-        fh.write("# Uploaded model\n\n")
-        fh.write(f"Source checkpoint: {checkpoint}\n\n")
-        if cfgs:
-            fh.write("Included config files:\n")
-            for c in cfgs:
-                fh.write(f" - {c}\n")
-        if constants_dir:
-            fh.write(f"\nIncluded tokenizer constants from: {constants_dir}\n")
+        fh.write(readme_content)
+    
+    # Generate config.json for Hugging Face Hub download tracking
+    # HF Hub tracks downloads through specific query files like config.json
+    metadata = extract_model_metadata(checkpoint, cfgs)
+    config_json_data = generate_config_json(checkpoint, cfgs, metadata)
+    config_json_path = os.path.join(tmpdir, "config.json")
+    with open(config_json_path, "w", encoding="utf-8") as fh:
+        json.dump(config_json_data, fh, indent=2, ensure_ascii=False)
+    print(f"Generated config.json for download tracking: {config_json_path}")
 
     # If using HTTP upload method, upload folder contents via the Hub API and return
     if upload_method == "http":
@@ -398,7 +856,7 @@ def main():
     parser.add_argument(
         "--roots",
         nargs="+",
-        default=["outputs/results", "results-final", "results"],
+        default=["results/to_push"],
         help="Root folders to search for checkpoints",
     )
     parser.add_argument(
