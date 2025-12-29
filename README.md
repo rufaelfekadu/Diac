@@ -129,7 +129,7 @@ Notes:
 Available Hugging Face models:
 1. `rufaelfekadu/diac-transforemer-text-only-tashkeela`
 2. `rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts`
-3. `rufaelfekadu/diac-tashkeela-clartts-kssa-diacritization-model`
+3. `rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts-kssa`
 
 
 ## Acknowledgments
