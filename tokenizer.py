@@ -1,4 +1,6 @@
 """
+Deprecated: for legacy support only.
+
 Tokenizer class for Arabic diacritization model.
 Handles encoding and decoding of text to/from token indices.
 """

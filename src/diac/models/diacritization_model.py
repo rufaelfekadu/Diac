@@ -76,11 +76,11 @@ class DiacritizationModule(L.LightningModule):
 
         # find checkpoint
         candidates = [
-            "pytorch_model.bin",
-            "model.pt",
-            "model.pth",
-            "state_dict.pt",
-            "final_model.pt",
+            # "pytorch_model.bin",
+            # "model.pt",
+            # "model.pth",
+            # "state_dict.pt",
+            # "final_model.pt",
             "best_model.ckpt",
         ]
         ckpt_path = None

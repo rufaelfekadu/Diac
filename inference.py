@@ -12,8 +12,6 @@ def main(config):
 
     os.makedirs(os.path.dirname(config.INFERENCE.OUTPUT_PATH), exist_ok=True)
 
-    constants = load_constants(config.CONSTANTS_PATH)
-
     tokenizer = ArabicDiacritizationTokenizer(constants_path=config.CONSTANTS_PATH)
     model = DiacritizationModule.load_from_checkpoint(
         config=config,
