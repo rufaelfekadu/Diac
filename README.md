@@ -108,6 +108,30 @@ This will create a text file with the predicted values at INFERENCE.OUTPUT_PATH.
 python eval.py -ofp results-final/transformer-text+asr/tashkeela+clartts+clartts_aug/predictions.txt -tfp data/clartts/test_only.txt
 ```
 
+### Hugging Face pretrained models
+
+You can run inference using one of the pretrained models published on Hugging Face with the included `inference_hf.py` script.
+
+Basic usage:
+
+```bash
+python inference_hf.py \
+        --model_name rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts \
+        --test_path data/clartts/test.txt \
+        --output_path outputs/hf_inference_output.txt
+```
+
+Notes:
+- `--model_name` should be one of the available model IDs (see list below).
+- `--test_path` can be a `.txt` file with one undiacritized sentence per line or a `.tsv` in the formats described above.
+- The script uses `DiacritizationModule.from_pretrained(..., tokenizer_constants_path="constants/")`, so keep the repository `constants/` folder available in the working directory.
+
+Available Hugging Face models:
+1. `rufaelfekadu/diac-transforemer-text-only-tashkeela`
+2. `rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts`
+3. `rufaelfekadu/diac-tashkeela-clartts-kssa-diacritization-model`
+
+
 ## Acknowledgments
 
 This project builds upon or utilizes code and resources from:
