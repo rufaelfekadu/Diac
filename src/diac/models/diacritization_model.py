@@ -2,6 +2,7 @@ from sys import exception
 import torch
 import torch.nn as nn
 import lightning as L
+from lightning.pytorch.utilities import grad_norm
 from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import csv
@@ -12,6 +13,7 @@ import json
 import tempfile
 from types import SimpleNamespace
 import yaml
+import shutil
 
 
 from diac.models.asr_model import AsrModel
@@ -159,6 +161,7 @@ class DiacritizationModule(L.LightningModule):
         hf_token=None,
         files_to_include=None,
         commit_message="upload model checkpoint",
+        clean_tmpdir: bool = False,
     ):
         """Save the module's model weights and push to Hugging Face Hub.
 
@@ -178,22 +181,28 @@ class DiacritizationModule(L.LightningModule):
         try:
             create_repo(repo_id=repo_id, exist_ok=True, token=hf_token)
         except Exception:
+            # non-fatal: repo may already exist or network may fail; proceed to attempt clone
             pass
 
+        # clone/create the repository locally
         repo = Repository(tmpdir, clone_from=repo_id, use_auth_token=hf_token)
 
         # save model weights
         model_path = os.path.join(tmpdir, "pytorch_model.bin")
         torch.save(self.model.state_dict(), model_path)
 
-        # save the tokenizer constants.json
-        tokenizer_path = os.path.join(tmpdir, "constants.json")
-        with open(tokenizer_path, "w", encoding="utf-8") as fh:
-            json.dump(self.tokenizer.constants, fh, ensure_ascii=False, indent=2)
+
+        # save the ckpt file
+        # get ckpt file from config.infernce.MODEL_PATH if exists
+        if hasattr(self.config.INFERENCE, "MODEL_PATH"):
+            ckpt_path = os.path.join(tmpdir, "best_model.ckpt")
+            source_ckpt_path = self.config.INFERENCE.MODEL_PATH
+            if os.path.exists(source_ckpt_path):
+                print(f"Copying checkpoint from {source_ckpt_path} to {ckpt_path}")
+                shutil.copyfile(source_ckpt_path, ckpt_path)
 
         # try to dump a minimal config.json if the config is simple
         try:
-
             def _ns_to_dict(ns):
                 if isinstance(ns, dict):
                     return {k: _ns_to_dict(v) for k, v in ns.items()}
@@ -210,20 +219,54 @@ class DiacritizationModule(L.LightningModule):
             # non-fatal
             pass
 
-        # include extra files
+        # include extra files (create parent dirs when needed)
         if files_to_include:
             for fname, content in files_to_include.items():
                 target = os.path.join(tmpdir, fname)
+                parent = os.path.dirname(target)
+                if parent and not os.path.exists(parent):
+                    os.makedirs(parent, exist_ok=True)
                 mode = "wb" if isinstance(content, (bytes, bytearray)) else "w"
-                with open(
-                    target, mode, encoding="utf-8" if mode == "w" else None
-                ) as fh:
-                    fh.write(content)
+                # use encoding only for text mode
+                if mode == "w":
+                    with open(target, mode, encoding="utf-8") as fh:
+                        fh.write(content)
+                else:
+                    with open(target, mode) as fh:
+                        fh.write(content)
 
-        repo.git_add(pattern="*")
-        repo.git_commit(commit_message)
-        repo.push_to_hub()
+        # Add, commit, and push changes. Use the Repository helper methods which
+        # wrap underlying git operations.
+        try:
+            repo.git_add(pattern="*")
+            repo.git_commit(commit_message)
+            repo.push_to_hub()
+        except Exception as e:
+            # surface helpful message but do not crash the caller
+            print(f"push_to_hub failed: {e}")
+
+        # Optionally clean up the temporary directory after pushing
+        if clean_tmpdir:
+            try:
+                shutil.rmtree(tmpdir)
+            except Exception:
+                pass
+
         return tmpdir
+
+    def clean(self, path: str) -> None:
+        """Remove a path (file or directory).
+
+        Useful to remove the temporary directory returned by `push_to_hub`
+        when `clean_tmpdir=False` was used.
+        """
+        if not path:
+            return
+        if os.path.exists(path):
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
 
     def __init__(self, config, tokenizer: ArabicDiacritizationTokenizer):
         super().__init__()
@@ -252,12 +295,7 @@ class DiacritizationModule(L.LightningModule):
         # Metrics
         self.train_accuracy = []
         self.val_accuracy = []
-        # Gradient clipping configuration (optional) — read from config.TRAIN.GRAD_CLIP_NORM if present
-        try:
-            # allow configs that may not have TRAIN or GRAD_CLIP_NORM
-            self.grad_clip_norm = getattr(self.config.TRAIN, "GRAD_CLIP_NORM", None)
-        except Exception:
-            self.grad_clip_norm = None
+
 
     def forward(self, inputs, inputs_asr=None):
         return self.model(inputs, inputs_asr=inputs_asr)
@@ -348,63 +386,10 @@ class DiacritizationModule(L.LightningModule):
             },
         }
 
-    def on_after_backward(self):
-        """Compute gradient norm after backward, log it, and optionally clip gradients.
-
-        - Logs `grad_norm` (L2 norm of gradients) on each step.
-        - If `self.grad_clip_norm` is set (not None/0), applies
-          torch.nn.utils.clip_grad_norm_ and logs `grad_norm_clipped`.
-        This hook runs after loss.backward() and before the optimizer step.
-        """
-        # collect parameters with gradients
-        params = [p for p in self.parameters() if p.grad is not None]
-        if not params:
-            return
-
-        # compute total norm robustly (handle sparse grads)
-        total_norm_sq = 0.0
-        for p in params:
-            grad = p.grad.detach()
-            if grad.is_sparse:
-                # sparse grads: use coalesced values
-                param_norm = grad.coalesce().values().norm(2)
-            else:
-                param_norm = grad.norm(2)
-            total_norm_sq += param_norm.item() ** 2
-
-        total_norm = total_norm_sq**0.5
-
-        # log the raw gradient norm (per-step)
-        try:
-            # prefer richer signature when available
-            self.log(
-                "grad_norm", total_norm, on_step=True, on_epoch=False, prog_bar=False
-            )
-        except Exception:
-            # fallback
-            self.log("grad_norm", total_norm)
-
-        # Clip gradients if requested via config
-        if self.grad_clip_norm:
-            try:
-                clipped_norm = torch.nn.utils.clip_grad_norm_(
-                    params, self.grad_clip_norm
-                )
-            except Exception:
-                # defensive: if clipping failed, skip
-                clipped_norm = None
-
-            if clipped_norm is not None:
-                try:
-                    self.log(
-                        "grad_norm_clipped",
-                        clipped_norm,
-                        on_step=True,
-                        on_epoch=False,
-                        prog_bar=False,
-                    )
-                except Exception:
-                    self.log("grad_norm_clipped", clipped_norm)
+    def on_before_optimizer_step(self, optimizer) -> None:
+        norms = grad_norm(self, norm_type=2)
+        total_norm = norms["grad_2.0_norm_total"]
+        self.log("grad_norm", total_norm, prog_bar=True)    
 
     def predict_step(self, batch, batch_idx):
         inputs, inputs_asr, _ = batch

@@ -53,12 +53,13 @@ def main(args):
         max_epochs=config.TRAIN.NUM_EPOCHS,
         callbacks=callbacks,
         logger=pl_loggers,
-        accelerator="auto",  # Automatically detect GPU/CPU
+        accelerator=config.TRAIN.DEVICE,  # Automatically detect GPU/CPU
         devices=1,
         precision=(
             "16-mixed" if torch.cuda.is_available() else 32
         ),  # Mixed precision for faster training
-        gradient_clip_val=1.0,  # Gradient clipping
+        
+        gradient_clip_val=getattr(config.TRAIN, "GRAD_CLIP_NORM", 0.0),  # Gradient clipping
         accumulate_grad_batches=getattr(config.TRAIN, "ACCUMULATE_GRAD_BATCHES", 1),
         val_check_interval=getattr(config.TRAIN, "VAL_CHECK_INTERVAL", 1.0),
         log_every_n_steps=10,

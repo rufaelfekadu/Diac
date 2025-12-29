@@ -148,6 +148,11 @@ class TextAudioDataset(Dataset):
 
         assert len(self.lines) == len(self.labels), "Mismatch in data lengths"
 
+        if asr_lines:
+            assert len(self.lines) == len(
+                self.asr_lines
+            ), f"Mismatch in ASR data lengths: {len(self.lines)} != {len(self.asr_lines)}"
+
     def __len__(self) -> int:
         return len(self.lines)
 
