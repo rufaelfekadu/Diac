@@ -128,11 +128,11 @@ Notes:
 
 Available Hugging Face models:
 
-| Model type | Pretrained data | Train data | DER(ClarTTS) | DER (KSSA) | Link |
-|---|---|---|---:|---:|---|
-| text-only | Tashkeela | — | 10.33 | 44.10 | [link](https://huggingface.co/rufaelfekadu/diac-transformer-text-only-tashkeela) |
-| text+asr | Tashkeela | CLArTTS | 2.28 | 16.35 | [link](https://huggingface.co/rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts) |
-| text+asr | Tashkeela | CLArTTS + KSSA | 6.20 | 10.70 | [link](https://huggingface.co/rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts-kssa) |
+| Model type | Pretrain data | Train data | DER (ClarTTS) | DER (KSSA) | Notes | Link |
+|---|---|---|---:|---:|---|---|
+| text-only | Tashkeela | — | 10.33 | 44.10 | Text-only pretrained model | [link](https://huggingface.co/rufaelfekadu/diac-transformer-text-only-tashkeela) |
+| text+asr | Tashkeela | CLArTTS | 2.28 | 16.35 | Uses ASR outputs as additional input | [link](https://huggingface.co/rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts) |
+| text+asr | Tashkeela | CLArTTS + KSSA | 6.20 | 10.70 | Continued training with extra [KSSA-2026](https://arai.ksaa.gov.sa/sharedTask2026/) data | [link](https://huggingface.co/rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts-kssa) |
 
 Note: "Pretrained data" indicates text-only pretraining performed on the Tashkeela corpus.
 
