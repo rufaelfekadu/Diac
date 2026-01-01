@@ -127,9 +127,14 @@ Notes:
 - The script uses `DiacritizationModule.from_pretrained(..., tokenizer_constants_path="constants/")`, so keep the repository `constants/` folder available in the working directory.
 
 Available Hugging Face models:
-1. `rufaelfekadu/diac-transforemer-text-only-tashkeela`
-2. `rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts`
-3. `rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts-kssa`
+
+| Model type | Pretrained data | Train data | DER(ClarTTS) | DER (KSSA) | Link |
+|---|---|---|---:|---:|---|
+| text-only | Tashkeela | — | — | — | [link](https://huggingface.co/rufaelfekadu/diac-transforemer-text-only-tashkeela) |
+| text+asr | Tashkeela | CLArTTS | — | — | [link](https://huggingface.co/rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts) |
+| text+asr | Tashkeela | CLArTTS + KSSA | — | — | [link](https://huggingface.co/rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts-kssa) |
+
+Note: "Pretrained data" indicates text-only pretraining performed on the Tashkeela corpus.
 
 
 ## Acknowledgments
