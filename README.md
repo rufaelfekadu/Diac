@@ -130,9 +130,9 @@ Available Hugging Face models:
 
 | Model type | Pretrained data | Train data | DER(ClarTTS) | DER (KSSA) | Link |
 |---|---|---|---:|---:|---|
-| text-only | Tashkeela | — | — | — | [link](https://huggingface.co/rufaelfekadu/diac-transforemer-text-only-tashkeela) |
-| text+asr | Tashkeela | CLArTTS | — | — | [link](https://huggingface.co/rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts) |
-| text+asr | Tashkeela | CLArTTS + KSSA | — | — | [link](https://huggingface.co/rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts-kssa) |
+| text-only | Tashkeela | — | 10.33 | 44.10 | [link](https://huggingface.co/rufaelfekadu/diac-transformer-text-only-tashkeela) |
+| text+asr | Tashkeela | CLArTTS | 2.28 | 16.35 | [link](https://huggingface.co/rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts) |
+| text+asr | Tashkeela | CLArTTS + KSSA | 6.20 | 10.70 | [link](https://huggingface.co/rufaelfekadu/diac-transformer-text-asr-tashkeela-clartts-kssa) |
 
 Note: "Pretrained data" indicates text-only pretraining performed on the Tashkeela corpus.
 
